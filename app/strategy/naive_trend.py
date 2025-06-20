@@ -2,7 +2,7 @@ import pandas as pd
 from typing import Dict, Any
 
 from .base import BaseStrategy
-from .indicators import exponential_moving_average
+from .indicators import ema_series
 
 class NaiveTrendStrategy(BaseStrategy):
     """
@@ -54,9 +54,9 @@ class NaiveTrendStrategy(BaseStrategy):
         slow_period = self.parameters['slow_ema_period']
         bias_period = self.parameters['bias_ema_period']
 
-        df['fast_ema'] = exponential_moving_average(df['Close'], fast_period)
-        df['slow_ema'] = exponential_moving_average(df['Close'], slow_period)
-        df['bias_ema'] = exponential_moving_average(df['Close'], bias_period)
+        df['fast_ema'] = ema_series(df['Close'], fast_period)
+        df['slow_ema'] = ema_series(df['Close'], slow_period)
+        df['bias_ema'] = ema_series(df['Close'], bias_period)
 
         buy_crossover = (df['fast_ema'].shift(1) <= df['slow_ema'].shift(1)) & (df['fast_ema'] > df['slow_ema'])
         buy_bias = (df['fast_ema'] > df['bias_ema']) & (df['slow_ema'] > df['bias_ema'])
