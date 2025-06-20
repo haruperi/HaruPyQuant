@@ -18,7 +18,7 @@ MetaTrader5
 # bcrypt==4.1.2
 
 # API Development
-#requests
+requests
 #httpx
 #pydantic
 
