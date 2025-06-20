@@ -1,0 +1,51 @@
+# Trading Data
+MetaTrader5
+
+# Web Framework
+# Flask==3.0.0
+# Werkzeug==3.0.1
+# gunicorn==21.2.0
+
+# Database
+# SQLAlchemy==2.0.25
+# alembic==1.13.1
+# psycopg2-binary==2.9.9
+
+# Authentication & Security
+# python-jose==3.3.0
+# passlib==1.7.4
+# python-dotenv==1.0.0
+# bcrypt==4.1.2
+
+# API Development
+#requests
+#httpx
+#pydantic
+
+# Testing
+#pytest
+#pytest-cov
+#pytest-mock
+
+# Development Tools
+#black
+#Ruff
+#mypy
+
+# Utilities
+#python-dateutil
+#Pillow
+pandas
+numpy
+
+# Documentation
+#Sphinx
+#mkdocs
+
+# Task Queue
+# celery==5.3.6
+# redis==5.0.1
+
+# Monitoring
+# sentry-sdk==1.39.1
+# prometheus-client==0.19.0 

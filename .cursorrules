@@ -1,0 +1,691 @@
+# Instructions
+
+During your interaction with the user, if you find anything reusable in this project (e.g. version of a library, model name), especially about a fix to a mistake you made or a correction you received, you should take note in the `Lessons` section in the `.cursorrules` file so you will not make the same mistake again. 
+
+You should also use the `.cursorrules` file as a Scratchpad to organize your thoughts. Especially when you receive a new task, you should first review the content of the Scratchpad, clear old different task if necessary, first explain the task, and plan the steps you need to take to complete the task. You can use todo markers to indicate the progress, e.g.
+[X] Task 1
+[ ] Task 2
+
+Also update the progress of the task in the Scratchpad when you finish a subtask.
+Especially when you finished a milestone, it will help to improve your depth of task accomplishment to use the Scratchpad to reflect and plan.
+The goal is to help you maintain a big picture as well as the progress of the task. Always refer to the Scratchpad when you plan the next step.
+
+# Utils Tools
+
+Note all the utils tools are in python. So in the case you need to do batch processing, you can always consult the python files and write your own script.
+
+## Screenshot Verification
+
+The screenshot verification workflow allows you to capture screenshots of web pages and verify their appearance using LLMs. The following utils tools are available:
+
+1. Screenshot Capture:
+```bash
+venv/bin/python utils/screenshot_utils.py URL [--output OUTPUT] [--width WIDTH] [--height HEIGHT]
+```
+
+2. LLM Verification with Images:
+```bash
+venv/bin/python tools/llm_api.py --prompt "Your verification question" --provider {openai|anthropic} --image path/to/screenshot.png
+```
+
+Example workflow:
+```python
+from screenshot_utils import take_screenshot_sync
+from llm_api import query_llm
+
+# Take a screenshot
+
+screenshot_path = take_screenshot_sync('https://example.com', 'screenshot.png')
+
+# Verify with LLM
+
+response = query_llm(
+    "What is the background color and title of this webpage?",
+    provider="openai",  # or "anthropic"
+    image_path=screenshot_path
+)
+print(response)
+```
+
+## LLM
+
+You always have an LLM at your side to help you with the task. For simple tasks, you could invoke the LLM by running the following command:
+```
+venv/bin/python app/utils/llm_api.py --prompt "What is the capital of France?" --provider "anthropic"
+```
+
+The LLM API supports multiple providers:
+- OpenAI (default, model: gpt-4o)
+- Azure OpenAI (model: configured via AZURE_OPENAI_MODEL_DEPLOYMENT in .env file, defaults to gpt-4o-ms)
+- DeepSeek (model: deepseek-chat)
+- Anthropic (model: claude-3-sonnet-20240229)
+- Gemini (model: gemini-pro)
+- Local LLM (model: Qwen/Qwen2.5-32B-Instruct-AWQ)
+
+But usually it's a better idea to check the content of the file and use the APIs in the `app/utils/llm_api.py` file to invoke the LLM if needed.
+
+## Web browser
+
+You could use the `app/utils/web_scraper.py` file to scrape the web.
+```
+venv/bin/python app/utils/web_scraper.py --max-concurrent 3 URL1 URL2 URL3
+```
+This will output the content of the web pages.
+
+## Search engine
+
+You could use the `app/utils/search_engine.py` file to search the web.
+```
+venv/bin/python app/utils/search_engine.py "your search keywords"
+```
+This will output the search results in the following format:
+```
+URL: https://example.com
+Title: This is the title of the search result
+Snippet: This is a snippet of the search result
+```
+If needed, you can further use the `web_scraper.py` file to scrape the web page content.
+
+# Development Guidelines
+
+1. Always activate the virtual environment before working on the project
+2. Add new dependencies to requirements.txt
+3. Keep code organized and well-documented
+4. Follow PEP 8 style guidelines for Python code
+5. Keep your code DRY (Dont Repeat Yourself)
+
+# Lessons
+
+## User Specified Lessons
+
+- You have a python venv in ./venv. Use it.
+- Include info useful for debugging in the program output.
+- Read the file before you try to edit it.
+- Due to Cursor's limit, when you use `git` and `gh` and need to submit a multiline commit message, first write the message in a file, and then use `git commit -F <filename>` or similar command to commit. And then remove the file. 
+- For Project Implementation tasks:
+  - Work on one task at a time
+  - After completing a task:
+    1. Mark it as done in the todo list
+    2. Create a git commit 
+    3. Ask for confirmation before proceeding to the next task
+  - Do not automatically proceed to the next task without explicit confirmation
+- Always implement proper logging in all modules following these guidelines:
+  1. Import the logger at the top of each module: `from utils import get_logger`
+  2. Create a module-specific logger: `logger = get_logger(__name__)`
+  3. Use appropriate log levels:
+     - DEBUG: Detailed information for debugging
+     - INFO: Confirmation that things are working as expected
+     - WARNING: Indication that something unexpected happened but the application is still working
+     - ERROR: Due to a more serious problem, the application couldn't perform a function
+     - CRITICAL: A serious error indicating the application may be unable to continue running
+  4. Include context in log messages (e.g., function parameters, return values, object states)
+  5. Log the start and end of important operations
+  6. Log all exceptions with traceback information using `logger.exception()` or `logger.error(exc_info=True)`
+  7. Use structured logging for machine-parseable logs when appropriate
+- Implement defensive programming to handle circular imports:
+  1. Use try/except blocks for imports that might cause circular dependencies
+  2. Implement fallback mechanisms for critical utilities like logging
+  3. Follow the module hierarchy defined in docs/dependency_management.md
+  4. Use late imports inside functions when necessary
+  5. Use dependency injection to pass higher-level components to lower-level ones
+  6. Test imports thoroughly before committing code
+
+## Cursor learned
+
+- For search results, ensure proper handling of different character encodings (UTF-8) for international queries
+- Add debug information to stderr while keeping the main output clean in stdout for better pipeline integration
+- When using seaborn styles in matplotlib, use 'seaborn-v0_8' instead of 'seaborn' as the style name due to recent seaborn version changes
+- Use 'gpt-4o' as the model name for OpenAI's GPT-4 with vision capabilities
+- For MT5 integration, use the correct path format with double backslashes and include the broker name in the path: `C:\\Program Files\\Pepperstone MetaTrader 5\\terminal64.exe` instead of `C:\\Program Files\\MetaTrader 5\\terminal64.exe`
+- When working with MT5, check if the terminal path exists before attempting to initialize the connection to avoid cryptic errors
+- In PowerShell, use semicolon (;) instead of && for command chaining
+- When creating test files, define path constants in the main module to make it more testable and avoid hardcoding paths in multiple places
+- Use unittest.mock.patch to mock module-level variables during testing
+- Use Decimal for financial calculations to avoid floating-point precision issues
+- Implement proper validation in data classes using __post_init__ for type conversion and validation
+- Design abstract base classes with comprehensive documentation and clear error messages
+- Cache frequently accessed data in data providers to improve performance
+- When testing file operations like log rotation:
+   - Use smaller file sizes in tests to trigger rotation quickly
+   - Add proper cleanup of file handlers
+   - Include sufficient wait time for file operations
+- Make configuration parameters flexible:
+   - Allow customization of log rotation settings
+   - Use sensible defaults for production
+   - Document all parameters clearly
+- When mocking objects in Python tests:
+   - Set attributes directly on MagicMock objects to avoid attribute access issues
+   - Mock all necessary dependencies including file system operations
+   - Properly handle initialization and cleanup in fixtures
+   - Use proper error handling and status checking in connection methods
+   - Mock both success and failure cases for comprehensive testing
+
+
+## MT5 Integration Lessons
+
+1. When working with MT5 API:
+   - Use `trade_tick_size` and `trade_contract_size` instead of `tick_size` and `contract_size`
+   - Convert numeric values to appropriate types (float, int) to ensure consistency
+   - Handle spread_float as a float value derived from spread
+   - Properly handle numpy arrays returned by `copy_rates_range`
+   - Always use capitalized OHLCV column names ('Open', 'High', 'Low', 'Close', 'Volume') for consistency with MT5 DataFrame output
+   - Handle data type differences: MT5 returns Volume as uint64, but SQLite expects int64
+   - When using real MT5 data for testing, be aware of data availability limits (e.g., EURUSD history from 2015)
+   - Handle DataFrame index properly when MT5 returns data with timestamp as index
+
+2. Environment Variable Handling:
+   - Strip comments from environment variable values before using them
+   - Use helper functions to handle environment variable parsing and type conversion
+   - Provide sensible defaults for optional configuration values
+
+3. Integration Testing:
+   - Use real MT5 credentials from environment variables
+   - Test both successful and error cases
+   - Verify data types and value ranges
+   - Test with multiple symbols and timeframes
+   - Clean up resources (disconnect) after tests
+
+4. Error Handling:
+   - Check for None return values from MT5 API calls
+   - Use mt5.last_error() to get detailed error information
+   - Log errors with context information
+   - Implement proper cleanup in error cases
+
+5. Connection Management:
+   - Verify terminal path exists before connecting
+   - Handle connection timeouts
+   - Implement proper cleanup on object destruction
+   - Track connection state accurately
+
+
+## Testing Rules
+
+All tests must be organized in the following directory structure under the tests folder:
+
+### Unit Tests (`tests/unit/`)
+- Purpose: Test individual components/functions in isolation
+- Scope: Single unit of code (class, function, method)
+- Dependencies: Usually mocked/stubbed
+- Examples:
+  - `tests/unit/utils/test_logger.py` - Tests individual logger functions
+  - `tests/unit/core/test_mt5_data.py` - Tests MT5 data parsing functions
+  - `tests/unit/trader/test_position.py` - Tests position calculation logic
+
+### Integration Tests (`tests/integration/`)
+- Purpose: Test how components work together
+- Scope: Multiple components/services
+- Dependencies: Real or test doubles
+- Examples:
+  - `tests/integration/test_mt5_trader.py` - Tests MT5 client with trading logic
+  - `tests/integration/test_db_logging.py` - Tests logger with database
+  - `tests/integration/test_strategy_execution.py` - Tests strategy with live data feed
+
+### End-to-End Tests (`tests/e2e/`)
+- Purpose: Test complete workflows
+- Scope: Entire system
+- Dependencies: Real systems
+- Examples:
+  - `tests/e2e/test_trading_workflow.py` - Complete trade lifecycle
+  - `tests/e2e/test_backtest_workflow.py` - Full backtest process
+  - `tests/e2e/test_dashboard_workflow.py` - Complete dashboard interaction
+
+### Fixtures (`tests/fixtures/`)
+- Purpose: Provide reusable test data and setup
+- Types:
+  - Data fixtures: Sample data for tests (e.g., OHLCV data)
+  - Object fixtures: Pre-configured objects (e.g., MT5 API mock)
+  - Environment fixtures: Test environment setup (e.g., test database)
+- Examples:
+  - `tests/fixtures/market_data.py` - Sample OHLCV data
+  - `tests/fixtures/mt5_mock.py` - MT5 API mock
+  - `tests/fixtures/test_db.py` - Test database setup
+
+### Test File Organization
+Test files must follow these naming conventions:
+- All test files must be named `test_*.py` to be automatically discovered by test runners
+- Test classes must be named `Test*`
+- Test methods must be named `test_*`
+- Unit test files should mirror the structure of the source code:
+  - For a source file at `app/utils/logger.py`, the test should be at `tests/unit/utils/test_logger.py`
+  - For a source file at `app/core/trade.py`, the test should be at `tests/unit/core/test_trade.py`
+
+### Test Organization Guidelines
+- Keep test files focused and cohesive
+- Group related test cases in test classes
+- Use descriptive test names that explain the scenario being tested
+- Follow the Arrange-Act-Assert pattern in test methods
+- Use appropriate fixtures for test setup and teardown
+- Mock external dependencies in unit tests
+
+### Tool Tests (`tests/tools/`)
+- Purpose: Test development tools and scripts
+- Scope: Development utilities and helper scripts
+- Dependencies: Usually real dependencies (not mocked)
+- Examples:
+  - `tests/tools/test_logger.py` - Manual logger testing script
+  - `tests/tools/test_db_setup.py` - Database setup verification
+  - `tests/tools/test_env_check.py` - Environment setup verification
+
+## Parameter Optimization Lessons
+
+1. Optimization Methods:
+   - Use grid search for thorough parameter space exploration
+   - Use random search for faster optimization with large parameter spaces
+   - Use walk-forward analysis to test parameter stability over time
+
+2. Performance Metrics:
+   - Sharpe ratio is the default optimization metric
+   - Consider multiple metrics for robust strategy evaluation
+   - Use walk-forward analysis to prevent overfitting
+
+3. Parallel Processing:
+   - Use ProcessPoolExecutor for parallel parameter evaluation
+   - Set n_jobs to None for using all available CPU cores
+   - Handle process pool cleanup properly
+
+4. Memory Management:
+   - Clear results after optimization to free memory
+   - Use generators for large parameter combinations
+   - Implement proper cleanup in error cases
+
+## SQLite Integration Lessons
+
+1. SQLite Datetime Handling:
+   - Use ISO format for storing datetime strings to preserve timezone info
+   - Always convert timestamps to UTC before storing
+   - Parse timestamps with timezone info when retrieving
+   - Handle naive timestamps by assuming UTC
+   - Use timezone-aware datetime objects consistently
+   - Verify timezone handling in integration tests
+   - Store timezone information in ISO format strings
+   - Use datetime.fromisoformat for parsing stored timestamps
+   - Ensure DataFrame index has consistent timezone info
+   - Convert all timestamps to UTC for storage and comparison
+
+2. Data Validation:
+   - Validate DataFrame structure before database operations
+   - Check for required columns and data types
+   - Verify timestamp format and timezone info
+   - Ensure data consistency across operations
+   - Handle edge cases in data validation
+   - Log validation failures for debugging
+   - Implement retry mechanisms for failed operations
+   - Use proper error handling and logging
+   - Keep validation rules consistent across modules
+   - Document validation requirements clearly
+
+3. Performance Optimization:
+   - Use batch operations for better performance
+   - Implement connection pooling
+   - Add query optimization
+   - Create proper indexes
+   - Monitor query performance
+   - Cache frequently accessed data
+   - Use efficient data structures
+   - Minimize database round trips
+   - Handle large datasets efficiently
+   - Profile and optimize critical paths
+
+
+# Scratchpad
+
+## Current Task: System Health Monitoring Implementation
+
+### Progress:
+- [X] Create system health monitoring module
+- [X] Implement core monitoring components:
+  - [X] System resource monitoring (CPU, memory, disk)
+  - [X] Network I/O monitoring
+  - [ ] Trading system health checks
+  - [ ] MT5 connection monitoring
+  - [ ] Performance metrics tracking
+  - [ ] Alert system integration
+- [X] Add comprehensive test suite
+- [X] Implement proper error handling and logging
+- [ ] Create monitoring dashboard integration
+
+### Next Steps:
+1. [ ] Implement trading system health checks
+2. [ ] Add MT5 connection monitoring
+3. [ ] Create alert system
+4. [ ] Add performance metrics tracking
+5. [ ] Create monitoring dashboard
+
+### Notes:
+- The system health monitoring provides:
+  - Real-time system resource tracking
+  - Network I/O monitoring
+  - Status determination based on thresholds
+  - Historical metrics storage
+  - Comprehensive error handling
+  - Type safety and documentation
+
+### Testing Coverage:
+- Unit tests cover:
+  - Monitor start/stop functionality
+  - Metric collection
+  - Status determination
+  - Threshold checking
+  - Metrics history management
+  - Error handling
+
+## Initial Setup & Environment
+- [X] Install Python 3.13.2 or latest stable version
+- [X] Set up virtual environment (venv)
+- [X] Install MetaTrader 5 platform and create account
+- [X] Verify API access is enabled in MT5
+- [X] Create requirements.txt file
+- [X] Add initially required packages to requirements.txt file (MetaTrader5, pandas, numpy, etc.)
+- [X] Install initial packages in requirements.txt
+- [X] Create new project directory structure
+- [X] Create a README.md for project description
+- [X] Set up Git repository for version control
+- [X] Set up .gitignore for files to ignore in git
+- [X] Set up config.ini file for environment variables and credentials
+- [X] Create project structure according to architecture diagram
+
+## Core Module
+- [] Set up logging service for system-wide use
+- [] Implement main.py entry point script
+- [] Create core bot class with lifecycle management
+- [] Develop constants.py for system-wide configuration
+- [] Implement crash recovery mechanisms
+- [] Create configuration management system
+- [] Set up comprehensive error handling framework
+- [] Create utility functions and helper methods
+- [] Implement MT5 connection and authentication handling
+- [] Develop threading or asyncio framework for concurrent operations
+- [] Create system health monitoring
+
+## MT5 Data Module
+- [ ] Implement MT5 client connection manager
+- [ ] Develop symbol management and filtering
+- [ ] Create OHLC data retrieval and processing
+- [ ] Implement tick data handling
+- [ ] Develop multi-instrument monitoring
+- [ ] Create price action analysis tools
+- [ ] Implement market volatility metrics calculation
+- [ ] Develop market condition identification system
+- [ ] Create significant price level detection
+- [ ] Implement correlation tracking between instruments
+- [ ] Create data normalization and cleaning utilities
+- [ ] Implement real-time data streaming handlers
+- [ ] Develop efficient data caching mechanisms
+- [ ] Create historical data retrieval functions
+
+## Trading Module
+- [ ] Develop order placement functions
+- [ ] Implement position tracking and management
+- [ ] Create trade history analysis tools
+- [ ] Implement risk management and position sizing
+- [ ] Develop trade execution optimization
+- [ ] Create order submission retry logic
+- [ ] Implement position modification capabilities
+- [ ] Develop scaling in/out functionality
+- [ ] Create comprehensive risk limit enforcement system
+- [ ] Implement trade recording with full context information
+- [ ] Create order book access functions
+- [ ] Implement different order types (Market, Limit, Stop, etc.)
+- [ ] Develop account balance and margin monitoring
+- [ ] Create trade result handling and analysis
+
+## Strategy Module
+- [ ] Create strategy manager for coordination
+- [ ] Implement strategy base class
+- [ ] Develop signal generator base class
+- [ ] Create entry/exit logic base class
+- [ ] Implement standard technical indicators
+- [ ] Develop custom indicator implementations
+- [ ] Create indicator combination logic
+- [ ] Implement specific strategies:
+  - [ ] Trend following strategy implementation
+  - [ ] Mean reversion strategy implementation
+  - [ ] Breakout strategy implementation
+  - [ ] Scalping strategy implementation
+- [ ] Create multi-timeframe signal confirmation
+- [ ] Implement pattern recognition algorithms
+- [ ] Develop trailing stop exit strategies
+- [ ] Implement partial position exit logic
+- [ ] Create strategy parameter management
+- [ ] Develop strategy selection based on market conditions
+- [ ] Implement strategy results tracking
+- [ ] Create strategy performance metrics
+
+## Analysis Module
+- [ ] Create performance tracking system
+- [ ] Implement equity curve calculation
+- [ ] Develop trade analytics for statistics
+- [ ] Create drawdown analysis tools
+- [ ] Implement performance report generation
+- [ ] Develop KPI calculation system
+- [ ] Create trade pattern identification logic
+- [ ] Implement expectancy and risk-adjusted return calculations
+- [ ] Develop market condition performance analysis
+- [ ] Create performance anomaly detection system
+- [ ] Implement performance visualization tools
+- [ ] Create historical performance comparison
+- [ ] Develop timeframe-specific performance analysis
+- [ ] Implement strategy attribute correlation analysis
+
+## Backtest Module
+- [ ] Implement event-based backtesting engine
+- [ ] Create historical data processing for testing
+- [ ] Develop realistic slippage and commission modeling
+- [ ] Implement bootstrapping techniques
+- [ ] Create historical market condition simulation
+- [ ] Develop test result storage and comparison
+- [ ] Implement backtesting reporting system
+- [ ] Create visualization of trade entries and exits
+- [ ] Develop forward testing capability on demo accounts
+- [ ] Implement backtesting acceleration techniques
+- [ ] Create stress testing scenarios
+- [ ] Develop benchmark strategy comparison
+- [ ] Implement custom backtest metrics calculation
+- [ ] Create backtesting data integrity validation
+
+## Optimization Module
+- [ ] Create parameter optimization for strategies
+- [ ] Develop walk-forward analysis system
+- [ ] Implement Monte Carlo simulation
+- [ ] Create cross-validation framework
+- [ ] Develop optimization metric scoring functions
+- [ ] Create multi-objective optimization algorithms
+- [ ] Develop parameter stability analysis
+- [ ] Implement confidence interval calculations
+- [ ] Create visualization for parameter sensitivity
+- [ ] Develop overfitting prevention mechanisms
+- [ ] Implement optimization report generation
+- [ ] Create genetic algorithm optimization
+- [ ] Develop Bayesian optimization capabilities
+- [ ] Implement grid search optimization
+- [ ] Create optimization job distribution system
+- [ ] Develop parameter correlation analysis
+- [ ] Implement hyperparameter optimization
+- [ ] Create optimization result comparison tools
+- [ ] Develop robustness testing framework
+
+## Dashboard Module
+- [ ] Set up web framework (Flask/FastAPI)
+- [ ] Create dashboard main page
+- [ ] Implement strategy configuration interface
+- [ ] Develop performance visualization components
+- [ ] Create authentication system
+- [ ] Implement user permission system
+- [ ] Create data API endpoints
+- [ ] Develop chart components for trade visualization
+- [ ] Create equity curve display
+- [ ] Implement indicator visualization
+- [ ] Create alert configuration and management
+- [ ] Develop configuration validation system
+- [ ] Implement responsive design for multiple devices
+- [ ] Create real-time data updates using WebSockets
+- [ ] Develop interactive reports and analytics
+
+## Database Module
+- [ ] Set up TimescaleDB connection
+- [ ] Create database schema design
+- [ ] Implement data persistence management
+- [ ] Develop query optimization for performance
+- [ ] Create backup and restore functionality
+- [ ] Implement data export functions
+- [ ] Create efficient data compression for history
+- [ ] Develop query builder helpers
+- [ ] Implement ORM (SQLAlchemy) integration
+- [ ] Create migration system for schema updates
+- [ ] Develop data partitioning strategy
+- [ ] Implement connection pooling
+- [ ] Create database monitoring tools
+- [ ] Develop data integrity verification
+
+## External Integration Module
+- [ ] Implement notification service:
+  - [ ] Email alert system
+  - [ ] Telegram bot integration
+  - [ ] SMS notification (optional)
+- [ ] Create external data integrations:
+  - [ ] News API client
+  - [ ] Economic calendar integration
+  - [ ] Fundamental data retrieval
+- [ ] Develop import/export functionality:
+  - [ ] Strategy import/export
+  - [ ] Historical data import/export
+  - [ ] Configuration import/export
+- [ ] Create web scraping tools for market data
+- [ ] Implement social sentiment analysis
+- [ ] Develop secure API key management
+- [ ] Create webhook handlers for external triggers
+- [ ] Implement third-party service monitoring
+
+## Live Trading Module
+- [ ] Create real-time execution loop
+- [ ] Implement performance tracking
+- [ ] Develop failover and recovery mechanisms
+- [ ] Create system monitoring tools
+- [ ] Implement automatic restart functionality
+- [ ] Develop connection health checks
+- [ ] Create multi-account management
+- [ ] Implement broker communication failover
+- [ ] Develop system resource monitoring
+- [ ] Create trading hour management
+- [ ] Implement scheduled tasks
+- [ ] Develop emergency shutdown procedures
+- [ ] Create activity logging system
+- [ ] Implement strategy switching during live operation
+
+## Testing
+- [ ] Set up testing framework (pytest)
+- [ ] Create unit tests for all core components
+- [ ] Implement integration tests for module interactions
+- [ ] Develop backtesting validation suite
+- [ ] Create tests for error handling and recovery
+- [ ] Implement performance benchmark tests
+- [ ] Develop API endpoint tests
+- [ ] Create test fixtures and mock data
+- [ ] Implement continuous integration pipeline
+- [ ] Document testing procedures
+- [ ] Create MT5 API mocking system
+- [ ] Implement code coverage reporting
+- [ ] Develop automated regression tests
+- [ ] Create stress testing framework
+
+## Documentation
+- [ ] Create user documentation:
+  - [ ] Installation and setup guide
+  - [ ] Configuration manual
+  - [ ] Trading strategy descriptions
+  - [ ] Troubleshooting guide
+- [ ] Develop developer documentation:
+  - [ ] Architecture overview
+  - [ ] API reference
+  - [ ] Extension guide
+  - [ ] Development environment setup
+- [ ] Create operations documentation:
+  - [ ] Deployment procedures
+  - [ ] Backup and recovery guide
+  - [ ] Performance tuning recommendations
+  - [ ] Security considerations
+- [ ] Implement docstrings for all functions and classes
+- [ ] Create markdown files for GitHub repository
+- [ ] Develop sample configuration guides
+- [ ] Create API documentation using OpenAPI/Swagger
+- [ ] Implement automatic documentation generation
+
+## Deployment & Operation
+- [ ] Create deployment scripts for different environments
+- [ ] Implement versioning system
+- [ ] Create Docker containerization (optional)
+- [ ] Develop installation guides
+- [ ] Create configuration migration tools
+- [ ] Implement rollback procedures
+- [ ] Develop release testing protocol
+- [ ] Create changelog generation process
+- [ ] Implement license management
+- [ ] Prepare system requirement documentation
+- [ ] Create automated deployment pipeline
+- [ ] Develop monitoring dashboard
+- [ ] Implement log rotation and archiving
+- [ ] Create system performance benchmark tools
+
+## Compliance & Security
+- [ ] Implement appropriate risk warnings
+- [ ] Create comprehensive audit logging
+- [ ] Develop secure credential storage
+- [ ] Implement role-based access control
+- [ ] Create data encryption for sensitive information
+- [ ] Develop compliance reporting features
+- [ ] Implement trade record archiving
+- [ ] Create security review documentation
+- [ ] Develop privacy policy and terms of use
+- [ ] Implement broker-specific compliance features
+- [ ] Create data retention policy
+- [ ] Implement secure API communication
+- [ ] Develop vulnerability scanning integration
+- [ ] Create penetration testing framework
+
+## Performance Optimization
+- [ ] Conduct performance profiling
+- [ ] Optimize tick processing latency
+- [ ] Improve memory usage patterns
+- [ ] Optimize database queries
+- [ ] Improve API response times
+- [ ] Reduce CPU usage during idle periods
+- [ ] Optimize data processing pipelines
+- [ ] Improve startup time
+- [ ] Optimize backtest performance
+- [ ] Create performance monitoring dashboards
+- [ ] Implement caching strategies
+- [ ] Develop database indexing optimization
+- [ ] Create asynchronous processing where applicable
+- [ ] Implement data preprocessing optimization
+
+## Maintenance & Roadmap Planning
+- [ ] Plan version update schedule
+- [ ] Create feature roadmap document
+- [ ] Develop user feedback collection system
+- [ ] Implement analytics for feature usage
+- [ ] Create bug tracking and reporting process
+- [ ] Develop backward compatibility policy
+- [ ] Create deprecation policy for features
+- [ ] Plan future API integration roadmap
+- [ ] Document technical debt and refactoring needs
+- [ ] Create long-term architecture evolution plan
+- [ ] Develop community contribution guidelines
+- [ ] Create plugin/extension system plans
+- [ ] Implement update notification system
+- [ ] Develop feature request prioritization framework
+
+## Additional MT5-Specific Tasks
+- [ ] Implement MT5 terminal state monitoring
+- [ ] Create MT5 server status tracking
+- [ ] Develop MT5 connection retry with exponential backoff
+- [ ] Implement proper MT5 resource cleanup
+- [ ] Create MT5 session time handling
+- [ ] Develop MT5 symbol properties caching
+- [ ] Implement proper MT5 timezone management
+- [ ] Create MT5 account type-specific features
+- [ ] Develop MT5 order filling policy handling
+- [ ] Implement MT5 terminal GUI automation (if needed)
+- [ ] Create MT5 expert advisor interaction (if applicable)
+- [ ] Develop MT5 custom indicator access
+- [ ] Implement MT5 market depth data processing
+- [ ] Create tools for MT5 backtesting data preparation
