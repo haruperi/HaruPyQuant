@@ -3,8 +3,9 @@ import os
 from logging.handlers import RotatingFileHandler
 import sys
 
-LOG_DIR = "logs"
-LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+from app.config.constants import DEFAULT_LOG_LEVEL, LOG_DIR, LOG_FILE
+
+LOG_LEVEL = os.environ.get("LOG_LEVEL", DEFAULT_LOG_LEVEL).upper()
 
 def get_logger(name: str) -> logging.Logger:
     """
@@ -21,8 +22,7 @@ def get_logger(name: str) -> logging.Logger:
     Returns:
         logging.Logger: The configured logger instance.
     """
-    if not os.path.exists(LOG_DIR):
-        os.makedirs(LOG_DIR)
+    LOG_DIR.mkdir(exist_ok=True)
 
     logger = logging.getLogger(name)
     
@@ -42,9 +42,8 @@ def get_logger(name: str) -> logging.Logger:
     logger.addHandler(ch)
 
     # File Handler
-    log_file = os.path.join(LOG_DIR, "harupyquant.log")
     fh = RotatingFileHandler(
-        log_file, maxBytes=10*1024*1024, backupCount=5
+        LOG_FILE, maxBytes=10*1024*1024, backupCount=5
     )  # 10 MB per file, 5 backups
     fh.setFormatter(formatter)
     logger.addHandler(fh)

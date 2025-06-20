@@ -387,8 +387,7 @@ Test files must follow these naming conventions:
 ## Core Module
 - [X] Set up logging service for system-wide use
 - [X] Implement main.py entry point script
-- [] Create core bot class with lifecycle management
-- [] Develop constants.py for system-wide configuration
+- [X] Develop constants.py for system-wide configuration
 - [] Implement crash recovery mechanisms
 - [] Create configuration management system
 - [] Set up comprehensive error handling framework
