@@ -1448,7 +1448,7 @@ INSTRUMENT_US_ZTS_US_USD = "ZTS.US/USD"
 
 
 # Trading symbols by asset class
-FOREX_SYMBOLS = [
+Dukascopy_FOREX_SYMBOLS = [
     "AUD/CAD", "AUD/CHF", "AUD/JPY", "AUD/NZD", "AUD/USD",
     "CAD/CHF", "CAD/JPY", "CHF/JPY",
     "EUR/AUD", "EUR/CAD", "EUR/CHF", "EUR/GBP", "EUR/JPY", "EUR/NZD", "EUR/USD",
@@ -1457,13 +1457,13 @@ FOREX_SYMBOLS = [
     "USD/CHF", "USD/CAD", "USD/JPY"
 ]
 
-COMMODITY_SYMBOLS = [
+Dukascopy_COMMODITY_SYMBOLS = [
     "XAU/USD", "XAU/EUR", "XAU/GBP", "XAU/JPY", "XAU/AUD", "XAU/CHF", "XAG/USD"
 ]
 
-INDEX_SYMBOLS = [
+Dukascopy_INDEX_SYMBOLS = [
     "US500", "US30", "UK100", "GER40", "NAS100", "USD/X", "EUR/X"
 ]
 
 # Combine all symbols
-ALL_SYMBOLS = FOREX_SYMBOLS + COMMODITY_SYMBOLS + INDEX_SYMBOLS 
+Dukascopy_ALL_SYMBOLS = Dukascopy_FOREX_SYMBOLS + Dukascopy_COMMODITY_SYMBOLS + Dukascopy_INDEX_SYMBOLS 

@@ -298,11 +298,64 @@ class MT5Client:
                 "volume_min": float(symbol_info.volume_min),
                 "volume_max": float(symbol_info.volume_max),
                 "volume_step": float(symbol_info.volume_step),
+                "filling_modes": int(symbol_info.filling_mode),
             }
         except Exception as e:
             logger.error(f"Error getting symbol info for {symbol}: {e}")
             raise
 
+    def get_tick(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Gets the most recent tick for a symbol."""
+        if not self.is_connected():
+            logger.error(_MSG_NOT_CONNECTED)
+            return None
+        tick = mt5.symbol_info_tick(symbol)
+        if tick:
+            return tick._asdict()
+        logger.error(f"Failed to get tick for {symbol}: {mt5.last_error()}")
+        return None
+
+    def get_orders(self) -> List[Dict[str, Any]]:
+        """Gets all active orders."""
+        if not self.is_connected():
+            logger.error(_MSG_NOT_CONNECTED)
+            return []
+        orders = mt5.orders_get()
+        if orders is None:
+            logger.error(f"Failed to get orders: {mt5.last_error()}")
+            return []
+        return [order._asdict() for order in orders]
+
+    def get_positions(self) -> List[Dict[str, Any]]:
+        """Gets all open positions."""
+        if not self.is_connected():
+            logger.error(_MSG_NOT_CONNECTED)
+            return []
+        positions = mt5.positions_get()
+        if positions is None:
+            logger.error(f"Failed to get positions: {mt5.last_error()}")
+            return []
+        return [pos._asdict() for pos in positions]
+
+    def order_send(self, request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Sends a trade request to the MT5 terminal."""
+        if not self.is_connected():
+            logger.error(_MSG_NOT_CONNECTED)
+            return None
+
+        logger.info(f"Sending order request: {request}")
+        result = mt5.order_send(request)
+
+        if result is None:
+            logger.error(f"Order send failed: {mt5.last_error()}")
+            return None
+
+        logger.info(f"Order send result: {result}")
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.error(f"Order send rejected: retcode={result.retcode}, comment={result.comment}")
+            return None
+
+        return result._asdict()
 
     def get_timeframe(self, timeframe: str) -> Optional[int]:
         """Convert timeframe string to MT5 timeframe enum."""
