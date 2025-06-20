@@ -60,3 +60,7 @@ DEFAULT_START_DATE = "2025-01-01"  # Start date for backtest
 DEFAULT_END_DATE = "2025-03-31"  # End date for backtest
 DEFAULT_START_CANDLE = 0
 DEFAULT_END_CANDLE = 1000 
+
+
+# Dukascopy Instruments
+

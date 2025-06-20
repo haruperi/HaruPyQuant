@@ -28,9 +28,9 @@ MetaTrader5
 #pytest-mock
 
 # Development Tools
-#black
-#Ruff
-#mypy
+black
+Ruff
+mypy
 
 # Utilities
 #python-dateutil
