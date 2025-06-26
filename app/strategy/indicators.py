@@ -1,5 +1,8 @@
 import pandas as pd
 import numpy as np
+from typing import Optional, Dict, Any, Tuple
+from dataclasses import dataclass
+import MetaTrader5 as mt5
 
 # Standard indicators
 def ema_series(data: pd.Series, period: int) -> pd.Series:
@@ -72,86 +75,6 @@ def adr_series(high: pd.Series, low: pd.Series, n: int, symbol_info: dict) -> pd
 
 
 
-############### Swingline ###############
-def _update_swing_highs(current_high, current_low, highest_high, highest_low):
-    """Update highest high and highest low values."""
-    if current_high > highest_high:
-        highest_high = current_high
-    if current_low > highest_low:
-        highest_low = current_low
-    return highest_high, highest_low
-
-def _update_swing_lows(current_high, current_low, lowest_high, lowest_low):
-    """Update lowest high and lowest low values."""
-    if current_low < lowest_low:
-        lowest_low = current_low
-    if current_high < lowest_high:
-        lowest_high = current_high
-    return lowest_high, lowest_low
-
-def _check_swing_change(current_high, current_low, current_open, current_close, 
-                       prev_high, prev_low, highest_low, lowest_high, swingline):
-    """Check and determine if swing direction should change."""
-    if swingline == 1:
-        if current_high < highest_low and current_close < current_open and current_close < prev_low:
-            return -1, current_low, current_high
-    elif swingline == -1:
-        if current_low > lowest_high and current_close > current_open and current_close > prev_high:
-            return 1, current_high, current_low
-    return swingline, None, None
-
-def calculate_swingline(df):
-    """
-    Calculates the swingline direction based on price action.
-    Returns DataFrame with added 'swingline', 'highest_low', 'lowest_high', and 'swing_value' columns.
-    """
-    df = df.copy()
-    df['swingline'] = -1
-    df['highest_low'] = np.nan
-    df['lowest_high'] = np.nan
-
-    highest_high = df['High'].iloc[0]
-    lowest_low = df['Low'].iloc[0]
-    lowest_high = df['High'].iloc[0]
-    highest_low = df['Low'].iloc[0]
-    swingline = -1
-
-    for i in range(1, len(df)):
-        current = df.iloc[i]
-        prev = df.iloc[i-1]
-        
-        if swingline == 1:
-            highest_high, highest_low = _update_swing_highs(
-                current['High'], current['Low'], highest_high, highest_low
-            )
-        else:
-            lowest_high, lowest_low = _update_swing_lows(
-                current['High'], current['Low'], lowest_high, lowest_low
-            )
-
-        new_swingline, new_high, new_low = _check_swing_change(
-            current['High'], current['Low'], current['Open'], current['Close'],
-            prev['High'], prev['Low'], highest_low, lowest_high, swingline
-        )
-
-        if new_swingline != swingline:
-            swingline = new_swingline
-            if swingline == 1:
-                highest_high, highest_low = new_high, new_low
-            else:
-                lowest_high, lowest_low = new_high, new_low
-
-        df.loc[df.index[i], 'highest_low'] = highest_low
-        df.loc[df.index[i], 'lowest_high'] = lowest_high
-        df.loc[df.index[i], 'swingline'] = swingline
-        df.loc[df.index[i], 'swing_value'] = highest_low if swingline == 1 else lowest_high
-
-    df = df.drop(['highest_low', 'lowest_high', 'swing_value'], axis=1)
-
-    return df
-
-############### End of Swingline ###############
-
 def calculate_swingline_pivot_points(df):
     """
     Identifies fractal pivot points in the DataFrame based on swingline directions.
@@ -188,6 +111,214 @@ def calculate_swingline_pivot_points(df):
             df.at[max_high_idx, 'isPivot'] = 1
 
     return df
+
+############### Smart Money Concepts ###############
+
+class SmartMoneyConcepts:
+    """
+    Smart Money Concepts (SMC) analysis class.
+    
+    This class provides methods to identify and analyze smart money movements
+    in financial markets, including swing highs/lows, pivot points, order blocks,
+    fair value gaps, and liquidity zones.
+    """
+    def __init__(self, symbol: str, min_swing_length: int = 3, min_pip_range: int = 2):
+        """
+        Initialize the SmartMoneyConcepts analyzer.
+        """
+        self._logger = None  # Will be set up when needed
+        self._setup_logger()
+        self.symbol = symbol
+        self.pip_value = mt5.symbol_info(self.symbol).point * 10  # Convert point to pip value
+        self.min_swing_length = min_swing_length
+        self.min_pip_range = min_pip_range
+    def _setup_logger(self):
+        """Set up logger for the SMC class."""
+        try:
+            from app.util.logger import get_logger
+            self._logger = get_logger(__name__)
+        except ImportError:
+            import logging
+            self._logger = logging.getLogger(__name__)
+
+    def calculate_swingline(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Calculates swing trend lines and adds them as columns to a DataFrame.
+
+        This function processes a DataFrame with 'High' and 'Low' price columns,
+        identifies market swing direction, and adds the following columns:
+        - swingline: The swing direction (1 for upswing, -1 for downswing).
+        - swing_value: The peak of the current swing (HighestHigh for upswings,
+        LowestLow for downswings).
+        - highest_low: The highest low point reached during the current upswing.
+        - lowest_high: The lowest high point reached during the current downswing.
+
+        Args:
+            df (pd.DataFrame): Input DataFrame containing 'High' and 'Low' columns.
+
+        Returns:
+            pd.DataFrame: The DataFrame with the four new columns added.
+        """
+        if 'High' not in df.columns or 'Low' not in df.columns:
+            raise ValueError("Input DataFrame must contain 'High' and 'Low' columns.")
+        
+        if self._logger is None:
+            self._setup_logger()
+            
+        self._logger.info("Calculating swingline for DataFrame")
+
+        if len(df) < 2:
+            self._logger.warning("DataFrame too short for swingline calculation")
+            return df
+
+        # Prepare lists to hold the calculated values for the new columns
+        swingline = [np.nan] * len(df)
+        swing_value = [np.nan] * len(df)
+        highest_low_col = [np.nan] * len(df)
+        lowest_high_col = [np.nan] * len(df)
+
+        # --- Initialize State Variables from the first row ---
+        # The logic starts with swing_direction = -1, so we begin in a downswing state.
+        swing_direction = -1
+        HighestHigh = df['High'].iloc[0]
+        LowestLow = df['Low'].iloc[0]
+        LowestHigh = df['High'].iloc[0]
+        HighestLow = df['Low'].iloc[0]
+
+        # --- Set initial values for the first row ---
+        swingline[0] = swing_direction
+        swing_value[0] = LowestLow  # In a downswing, swing_value is LowestLow
+        highest_low_col[0] = HighestLow
+        lowest_high_col[0] = LowestHigh
+        
+        # --- Process the rest of the DataFrame row by row ---
+        for i in range(1, len(df)):
+            high = df['High'].iloc[i]
+            low = df['Low'].iloc[i]
+
+            if swing_direction == 1:
+                # --- LOGIC FOR AN ACTIVE UPSWING ---
+                if high > HighestHigh:
+                    HighestHigh = high
+                if low > HighestLow:
+                    HighestLow = low
+                
+                # Check for a swing change to DOWN
+                if high < HighestLow:
+                    swing_direction = -1  # Change direction to downswing
+                    LowestLow = low
+                    LowestHigh = high
+            else:  # swing_direction == -1
+                # --- LOGIC FOR AN ACTIVE DOWNSWING ---
+                if low < LowestLow:
+                    LowestLow = low
+                if high < LowestHigh:
+                    LowestHigh = high
+                
+                # Check for a swing change to UP
+                if low > LowestHigh:
+                    swing_direction = 1  # Change direction to upswing
+                    HighestHigh = high
+                    HighestLow = low
+
+            # Append the current state to our lists
+            swingline[i] = swing_direction
+            highest_low_col[i] = HighestLow
+            lowest_high_col[i] = LowestHigh
+            
+            # Determine the swing_value based on the current swing direction
+            if swing_direction == 1:
+                swing_value[i] = HighestLow
+            else:
+                swing_value[i] = LowestHigh
+
+        # Add the lists as new columns to the DataFrame
+        df['swingline'] = swingline
+        df['swing_value'] = swing_value
+        df['highest_low'] = highest_low_col
+        df['lowest_high'] = lowest_high_col
+
+        self._logger.info(f"Swingline calculation completed. Final swingline: { df['swingline'].iloc[-1]}")
+        
+        return df
+    
+
+    def calculate_pivot_points(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Identify fractal pivot points based on swingline directions.
+        
+        Args:
+            df (pd.DataFrame): DataFrame with swingline column and OHLC data
+            
+        Returns:
+            pd.DataFrame: DataFrame with added pivot point indicators
+        """
+        if self._logger is None:
+            self._setup_logger()
+            
+        self._logger.info("Calculating pivot points")
+        
+        df = df.copy()
+        df['isPivot'] = np.nan
+
+        # Create groups of consecutive swingline values and clean up the data
+        group_ids = (df['swingline'] != df['swingline'].shift()).cumsum()
+        groups = df.groupby(group_ids)
+
+        for group_id, group_data in groups:
+            # Skip groups where all swing_value values are the same (flat/ranging market)
+            if group_data['swing_value'].nunique() == 1:
+                continue
+
+            # Skip groups with less than min_swing_length candles
+            if len(group_data) < self.min_swing_length:
+                continue
+
+            # Skip if the range of swingline values is less than min_pip_range pips
+            swingline_range = group_data['swing_value'].max() - group_data['swing_value'].min()
+            if swingline_range < (self.min_pip_range * self.pip_value):
+                continue
+                
+            sig_value = group_data['swingline'].iloc[0]
+
+            if sig_value == -1:
+                # Find index of the minimum low in this group
+                min_low_idx = group_data['Low'].idxmin()
+                df.at[min_low_idx, 'isPivot'] = -1
+                
+            elif sig_value == 1:
+                # Find index of the maximum high in this group
+                max_high_idx = group_data['High'].idxmax()
+                df.at[max_high_idx, 'isPivot'] = 1
+
+        # Forward fill the isPivot column
+        df['swingline'] = df['isPivot'].ffill()
+        df['isPivot'] = np.nan
+
+        # Create groups of consecutive swingline values and calculate final pivot points
+        group_ids = (df['swingline'] != df['swingline'].shift()).cumsum()
+        groups = df.groupby(group_ids)
+
+        for group_id, group_data in groups:
+            sig_value = group_data['swingline'].iloc[0]
+
+            if sig_value == -1:
+                # Find index of the minimum low in this group
+                min_low_idx = group_data['Low'].idxmin()
+                df.at[min_low_idx, 'isPivot'] = -1
+                
+            elif sig_value == 1:
+                # Find index of the maximum high in this group
+                max_high_idx = group_data['High'].idxmax()
+                df.at[max_high_idx, 'isPivot'] = 1
+
+        self._logger.info(f"Pivot points calculation completed.")
+
+        return df
+    
+
+
+############### End of Smart Money Concepts ###############
 
 
 
