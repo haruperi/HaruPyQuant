@@ -316,7 +316,138 @@ class SmartMoneyConcepts:
 
         return df
     
+    def identify_fair_value_gaps(self, df: pd.DataFrame, join_consecutive: bool = True) -> pd.DataFrame:
+        """
+        FVG - Fair Value Gap
+        A fair value gap is when the previous high is lower than the next low if the current candle is bullish.
+        Or when the previous low is higher than the next high if the current candle is bearish.
 
+        Args:
+            df (pd.DataFrame): DataFrame with OHLC data
+            join_consecutive: bool - if there are multiple FVG in a row then they will be merged into one using the highest top and the lowest bottom
+
+        Returns:
+            pd.DataFrame: DataFrame with FVG indicator Columns
+            fvg_type = 1 if bullish fair value gap, -1 if bearish fair value gap
+            fvg_high = the top of the fair value gap
+            fvg_low = the bottom of the fair value gap
+            fvg_size = size of the gap (uses mt5 pip value)
+            MitigatedIndex = the index of the candle that mitigated the fair value gap
+        """
+        if self._logger is None:
+            self._setup_logger()
+            
+        self._logger.info("Identifying fair value gaps")
+        
+        df = df.copy()
+        
+        # Initialize FVG columns
+        df['fvg_type'] = np.nan
+        df['fvg_high'] = np.nan
+        df['fvg_low'] = np.nan
+        df['fvg_size'] = np.nan
+        df['MitigatedIndex'] = None
+        
+        if len(df) < 3:
+            self._logger.warning("DataFrame too short for FVG calculation")
+            return df
+        
+        fvg_list = []
+        
+        # Identify FVGs
+        for i in range(1, len(df) - 1):
+            current = df.iloc[i]
+            prev = df.iloc[i-1]
+            next_candle = df.iloc[i+1]
+            
+            # Check for bullish FVG (previous high < next low and current candle is bullish)
+            if (prev['High'] < next_candle['Low'] and 
+                current['Close'] > current['Open']):
+                
+                fvg_list.append({
+                    'index': i,
+                    'type': 1,  # bullish
+                    'high': next_candle['Low'],
+                    'low': prev['High'],
+                    'size': (next_candle['Low'] - prev['High']) / self.pip_value
+                })
+                
+            # Check for bearish FVG (previous low > next high and current candle is bearish)
+            elif (prev['Low'] > next_candle['High'] and 
+                  current['Close'] < current['Open']):
+                
+                fvg_list.append({
+                    'index': i,
+                    'type': -1,  # bearish
+                    'high': prev['Low'],
+                    'low': next_candle['High'],
+                    'size': (prev['Low'] - next_candle['High']) / self.pip_value
+                })
+        
+        # Join consecutive FVGs if requested
+        if join_consecutive and fvg_list:
+            merged_fvgs = []
+            current_group = [fvg_list[0]]
+            
+            for fvg in fvg_list[1:]:
+                if fvg['index'] == current_group[-1]['index'] + 1:
+                    # Consecutive FVG, add to current group
+                    current_group.append(fvg)
+                else:
+                    # Non-consecutive, process current group and start new one
+                    if len(current_group) > 1:
+                        # Merge consecutive FVGs
+                        merged_fvg = {
+                            'index': current_group[0]['index'],
+                            'type': current_group[0]['type'],
+                            'high': max(f['high'] for f in current_group),
+                            'low': min(f['low'] for f in current_group),
+                            'size': (max(f['high'] for f in current_group) - min(f['low'] for f in current_group)) / self.pip_value
+                        }
+                        merged_fvgs.append(merged_fvg)
+                    else:
+                        merged_fvgs.append(current_group[0])
+                    current_group = [fvg]
+            
+            # Process the last group
+            if len(current_group) > 1:
+                merged_fvg = {
+                    'index': current_group[0]['index'],
+                    'type': current_group[0]['type'],
+                    'high': max(f['high'] for f in current_group),
+                    'low': min(f['low'] for f in current_group),
+                    'size': (max(f['high'] for f in current_group) - min(f['low'] for f in current_group)) / self.pip_value
+                }
+                merged_fvgs.append(merged_fvg)
+            else:
+                merged_fvgs.append(current_group[0])
+            
+            fvg_list = merged_fvgs
+        
+        # Add FVGs to DataFrame and check for mitigation
+        for fvg in fvg_list:
+            idx = fvg['index']
+            real_idx = df.index[idx]
+            df.at[real_idx, 'fvg_type'] = fvg['type']
+            df.at[real_idx, 'fvg_high'] = fvg['high']
+            df.at[real_idx, 'fvg_low'] = fvg['low']
+            df.at[real_idx, 'fvg_size'] = round(fvg['size'], 1)
+            
+            # Check for mitigation (price filling the gap)
+            for j in range(idx + 1, len(df)):
+                candle = df.iloc[j]
+                if fvg['type'] == 1:  # Bullish FVG
+                    if candle['Low'] <= fvg['low']:
+                        df.at[real_idx, 'MitigatedIndex'] = str(df.index[j])
+                        break
+                else:  # Bearish FVG
+                    if candle['High'] >= fvg['high']:
+                        df.at[real_idx, 'MitigatedIndex'] = str(df.index[j])
+                        break
+        
+        self._logger.info(f"Fair value gaps identification completed. Found {len(fvg_list)} FVGs")
+        
+        return df
 
 ############### End of Smart Money Concepts ###############
 

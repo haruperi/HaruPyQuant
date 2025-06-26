@@ -25,6 +25,10 @@ if __name__ == '__main__':
     smc = SmartMoneyConcepts("GBPUSD", min_swing_length=3, min_pip_range=2)
     df_smc = smc.calculate_swingline(df)
     df_smc = smc.calculate_pivot_points(df_smc)
+
+    # Check Fair Value Gap (FVG)
+    df_smc = smc.identify_fair_value_gaps(df_smc)
+
     
     # # Perform complete SMC analysis
     # print("Performing SMC analysis...")
