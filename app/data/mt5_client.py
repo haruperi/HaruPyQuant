@@ -285,21 +285,7 @@ class MT5Client:
             if symbol_info is None:
                 raise RuntimeError(f"Failed to get symbol info: {mt5.last_error()}") # type: ignore
             
-            return {
-                "name": str(symbol_info.name),
-                "bid": float(symbol_info.bid),
-                "ask": float(symbol_info.ask),
-                "point": float(symbol_info.point),
-                "digits": int(symbol_info.digits),
-                "spread": int(symbol_info.spread),
-                "spread_float": float(symbol_info.spread),
-                "tick_size": float(symbol_info.trade_tick_size),
-                "contract_size": float(symbol_info.trade_contract_size),
-                "volume_min": float(symbol_info.volume_min),
-                "volume_max": float(symbol_info.volume_max),
-                "volume_step": float(symbol_info.volume_step),
-                "filling_modes": int(symbol_info.filling_mode),
-            }
+            return symbol_info
         except Exception as e:
             logger.error(f"Error getting symbol info for {symbol}: {e}")
             raise
@@ -311,7 +297,7 @@ class MT5Client:
             return None
         tick = mt5.symbol_info_tick(symbol)
         if tick:
-            return tick._asdict()
+            return tick
         logger.error(f"Failed to get tick for {symbol}: {mt5.last_error()}")
         return None
 
