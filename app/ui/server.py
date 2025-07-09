@@ -3,9 +3,13 @@ Flask server for HaruPyQuant web application
 Provides API endpoints for dashboard metrics and system status
 """
 
+# ==============================================================================
+# IMPORTS AND SETUP
+# ==============================================================================
 import os
 import sys
 import logging
+import pandas as pd
 from datetime import datetime
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -29,6 +33,9 @@ except ImportError as e:
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
+# ==============================================================================
+# APP INITIALIZATION AND CORS
+# ==============================================================================
 # Initialize Flask app
 app = Flask(__name__)
 
@@ -41,10 +48,19 @@ CORS(app, resources={
     }
 })
 
-# Configuration
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'harupyquant-dev-key')
 app.config['DEBUG'] = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
 
+# ==============================================================================
+# API ENDPOINTS
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Health & Status
+# ------------------------------------------------------------------------------
 @app.route('/api/health')
 def health_check():
     """Health check endpoint"""
@@ -112,6 +128,9 @@ def get_status():
             'timestamp': datetime.utcnow().isoformat()
         }), 500
 
+# ------------------------------------------------------------------------------
+# Dashboard Metrics
+# ------------------------------------------------------------------------------
 @app.route('/api/dashboard-metrics', methods=['GET'])
 def dashboard_metrics():
     """Get dashboard metrics"""
@@ -207,6 +226,9 @@ def dashboard_metrics():
             'balance': 99254.86
         })
 
+# ------------------------------------------------------------------------------
+# Technical Data
+# ------------------------------------------------------------------------------
 @app.route('/api/technical-indicators', methods=['GET'])
 def get_technical_indicators():
     """
@@ -280,6 +302,100 @@ def get_technical_indicators():
         logger.exception(f"Error calculating technical indicators: {e}")
         return jsonify({'error': str(e)}), 500
 
+# ------------------------------------------------------------------------------
+# SMC Data
+# ------------------------------------------------------------------------------
+@app.route('/api/smc-data', methods=['GET'])
+def get_smc_data():
+    """
+    Calculate SMC (Smart Money Concepts) data for given symbol and timeframe.
+    Query params: symbol, timeframe, mode ('bars' or 'date'), bars, start_date, end_date
+    """
+    logger.info("=== Starting SMC data request ===")
+    symbol = request.args.get('symbol')
+    timeframe = request.args.get('timeframe')
+    mode = request.args.get('mode', 'bars')
+    bars = int(request.args.get('bars', 100))
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    
+    logger.info(f"Received params: symbol={symbol}, timeframe={timeframe}, mode={mode}, bars={bars}, start_date={start_date}, end_date={end_date}")
+
+    try:
+        from app.data.mt5_client import MT5Client
+        from app.strategy.indicators import SmartMoneyConcepts
+        logger.info("Attempting to create MT5Client instance for SMC...")
+        mt5 = MT5Client()
+        logger.info("✓ MT5Client instance created")
+        if not mt5.is_connected():
+            logger.error("❌ MT5 not connected")
+            return jsonify({'error': 'MT5 not connected'}), 500
+
+        df = None
+        if mode == 'bars':
+            logger.info(f"Fetching {bars} bars for {symbol} {timeframe}")
+            df = mt5.fetch_data(symbol, timeframe, start_pos=0, end_pos=bars)
+        else:
+            # Convert date strings to datetime objects for mt5.fetch_data compatibility
+            from datetime import datetime, timezone
+            logger.info(f"Fetching data for {symbol} {timeframe} from {start_date} to {end_date}")
+            start_str = start_date[:10] if start_date else None
+            end_str = end_date[:10] if end_date else None
+            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if start_str else None
+            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if end_str else None
+            df = mt5.fetch_data(symbol, timeframe, start_date=start_dt, end_date=end_dt)
+
+        if df is None or df.empty:
+            logger.warning(f"No data returned for {symbol} {timeframe}")
+            return jsonify({'error': 'No data returned from MT5'}), 404
+
+        # Calculate SMC data
+        logger.info("Calculating SMC data...")
+        smc = SmartMoneyConcepts(symbol)
+        
+        # Run the complete SMC analysis
+        df = smc.run_smc(df)
+        
+        # Convert DataFrame to JSON-serializable format
+        smc_data = {}
+        for column in ['swingline', 'swing_value']:
+            if column in df.columns:
+                # Convert NaN and other non-serializable values to None
+                column_data = df[column].tolist()
+                cleaned_data = []
+                for value in column_data:
+                    if pd.isna(value) or value == 'None' or value == 'nan' or str(value).lower() == 'nan':
+                        cleaned_data.append(None)
+                    elif isinstance(value, (int, float)):
+                        # Ensure numeric values are valid
+                        if pd.isna(value) or value == float('inf') or value == float('-inf'):
+                            cleaned_data.append(None)
+                        else:
+                            cleaned_data.append(float(value) if isinstance(value, float) else int(value))
+                    else:
+                        cleaned_data.append(str(value) if value is not None else None)
+                smc_data[column] = cleaned_data
+        
+        logger.info(f"SMC calculation completed. Returning swingline data.")
+        logger.info(f"SMC data keys: {list(smc_data.keys())}")
+        
+        try:
+            return jsonify({'smc_data': smc_data})
+        except Exception as e:
+            logger.error(f"JSON serialization error: {e}")
+            logger.error(f"Problematic data: {smc_data}")
+            return jsonify({'error': f'JSON serialization failed: {str(e)}'}), 500
+        
+    except ImportError as e:
+        logger.error(f"❌ Failed to import required modules: {e}")
+        return jsonify({'error': f'Import failed: {str(e)}'}), 500
+    except Exception as e:
+        logger.exception(f"Error calculating SMC data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ------------------------------------------------------------------------------
+# MT5 Data
+# ------------------------------------------------------------------------------
 @app.route('/api/mt5-data', methods=['GET'])
 def get_mt5_data():
     """
@@ -322,24 +438,19 @@ def get_mt5_data():
             logger.warning(f"No data returned for {symbol} {timeframe}")
             return jsonify({'error': 'No data returned from MT5'}), 404
 
-        # Format for lightweight-charts
+        # Format for lightweight-charts/plotly
         data = []
-        # Determine if timeframe is daily or higher
-        is_daily = timeframe.upper() in ["D1", "W1", "MN1"]
         for ts, row in df.iterrows():
-            if is_daily:
-                tval = ts.strftime('%Y-%m-%d')
-            else:
-                tval = int(ts.timestamp())
+            tval = ts.isoformat()
             data.append({
                 'time': tval,
-                'open': float(row['Open']),
-                'high': float(row['High']),
-                'low': float(row['Low']),
-                'close': float(row['Close']),
+                'open': round(float(row['Open']), 5),
+                'high': round(float(row['High']), 5),
+                'low': round(float(row['Low']), 5),
+                'close': round(float(row['Close']), 5),
             })
         logger.info(f"Returning {len(data)} bars for {symbol} {timeframe}")
-        logger.info(f"Data: {data}")
+        #logger.info(f"Data: {data}")
         return jsonify({'data': data})
     except ImportError as e:
         logger.error(f"❌ Failed to import MT5Client: {e}")
@@ -348,7 +459,9 @@ def get_mt5_data():
         logger.exception(f"Error fetching MT5 data: {e}")
         return jsonify({'error': str(e)}), 500
 
-# Error handlers
+# ==============================================================================
+# ERROR HANDLERS
+# ==============================================================================
 @app.errorhandler(404)
 def not_found(error):
     """Handle 404 errors"""
@@ -360,6 +473,9 @@ def internal_error(error):
     logger.error(f"Internal server error: {error}")
     return jsonify({'error': 'Internal server error'}), 500
 
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8001))
     debug = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
