@@ -7,7 +7,7 @@ import os
 import sys
 import logging
 from datetime import datetime
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 # Add the parent directory to the path to import app modules
@@ -206,6 +206,147 @@ def dashboard_metrics():
             'equity': 99223.56,
             'balance': 99254.86
         })
+
+@app.route('/api/technical-indicators', methods=['GET'])
+def get_technical_indicators():
+    """
+    Calculate technical indicators for given data.
+    Query params: symbol, timeframe, mode ('bars' or 'date'), bars, start_date, end_date, indicators
+    """
+    logger.info("=== Starting technical indicators request ===")
+    symbol = request.args.get('symbol')
+    timeframe = request.args.get('timeframe')
+    mode = request.args.get('mode', 'bars')
+    bars = int(request.args.get('bars', 100))
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    indicators = request.args.get('indicators', '')  # Comma-separated list of indicators
+    
+    logger.info(f"Received params: symbol={symbol}, timeframe={timeframe}, mode={mode}, bars={bars}, start_date={start_date}, end_date={end_date}, indicators={indicators}")
+
+    try:
+        from app.data.mt5_client import MT5Client
+        from app.strategy.indicators import ema_series
+        logger.info("Attempting to create MT5Client instance for indicators...")
+        mt5 = MT5Client()
+        logger.info("✓ MT5Client instance created")
+        if not mt5.is_connected():
+            logger.error("❌ MT5 not connected")
+            return jsonify({'error': 'MT5 not connected'}), 500
+
+        df = None
+        if mode == 'bars':
+            logger.info(f"Fetching {bars} bars for {symbol} {timeframe}")
+            df = mt5.fetch_data(symbol, timeframe, start_pos=0, end_pos=bars)
+        else:
+            # Convert date strings to datetime objects for mt5.fetch_data compatibility
+            from datetime import datetime, timezone
+            logger.info(f"Fetching data for {symbol} {timeframe} from {start_date} to {end_date}")
+            start_str = start_date[:10] if start_date else None
+            end_str = end_date[:10] if end_date else None
+            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if start_str else None
+            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if end_str else None
+            df = mt5.fetch_data(symbol, timeframe, start_date=start_dt, end_date=end_dt)
+
+        if df is None or df.empty:
+            logger.warning(f"No data returned for {symbol} {timeframe}")
+            return jsonify({'error': 'No data returned from MT5'}), 404
+
+        # Calculate indicators
+        indicator_data = {}
+        indicator_list = [ind.strip() for ind in indicators.split(',') if ind.strip()]
+        
+        for indicator in indicator_list:
+            try:
+                if indicator == 'EMA20':
+                    ema_values = ema_series(df['Close'], 20)
+                    indicator_data[indicator] = ema_values.tolist()
+                    logger.info(f"Calculated {indicator} with period 20")
+                else:
+                    logger.warning(f"Unsupported indicator: {indicator}")
+                    indicator_data[indicator] = None
+                    
+            except Exception as e:
+                logger.error(f"Error calculating {indicator}: {e}")
+                indicator_data[indicator] = None
+
+        logger.info(f"Calculated indicators: {list(indicator_data.keys())}")
+        return jsonify({'indicators': indicator_data})
+        
+    except ImportError as e:
+        logger.error(f"❌ Failed to import required modules: {e}")
+        return jsonify({'error': f'Import failed: {str(e)}'}), 500
+    except Exception as e:
+        logger.exception(f"Error calculating technical indicators: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/mt5-data', methods=['GET'])
+def get_mt5_data():
+    """
+    Fetch OHLCV data from MT5 for a given symbol, timeframe, and range.
+    Query params: symbol, timeframe, mode ('bars' or 'date'), bars, start_date, end_date
+    """
+    logger.info("=== Starting MT5 data request ===")
+    symbol = request.args.get('symbol')
+    timeframe = request.args.get('timeframe')
+    mode = request.args.get('mode', 'bars')
+    bars = int(request.args.get('bars', 100))
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    logger.info(f"Received params: symbol={symbol}, timeframe={timeframe}, mode={mode}, bars={bars}, start_date={start_date}, end_date={end_date}")
+
+    try:
+        from app.data.mt5_client import MT5Client
+        logger.info("Attempting to create MT5Client instance for data fetch...")
+        mt5 = MT5Client()
+        logger.info("✓ MT5Client instance created")
+        if not mt5.is_connected():
+            logger.error("❌ MT5 not connected")
+            return jsonify({'error': 'MT5 not connected'}), 500
+
+        df = None
+        if mode == 'bars':
+            logger.info(f"Fetching {bars} bars for {symbol} {timeframe}")
+            df = mt5.fetch_data(symbol, timeframe, start_pos=0, end_pos=bars)
+        else:
+            # Convert date strings to datetime objects for mt5.fetch_data compatibility
+            from datetime import datetime, timezone
+            logger.info(f"Fetching data for {symbol} {timeframe} from {start_date} to {end_date}")
+            start_str = start_date[:10] if start_date else None
+            end_str = end_date[:10] if end_date else None
+            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if start_str else None
+            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if end_str else None
+            df = mt5.fetch_data(symbol, timeframe, start_date=start_dt, end_date=end_dt)
+
+        if df is None or df.empty:
+            logger.warning(f"No data returned for {symbol} {timeframe}")
+            return jsonify({'error': 'No data returned from MT5'}), 404
+
+        # Format for lightweight-charts
+        data = []
+        # Determine if timeframe is daily or higher
+        is_daily = timeframe.upper() in ["D1", "W1", "MN1"]
+        for ts, row in df.iterrows():
+            if is_daily:
+                tval = ts.strftime('%Y-%m-%d')
+            else:
+                tval = int(ts.timestamp())
+            data.append({
+                'time': tval,
+                'open': float(row['Open']),
+                'high': float(row['High']),
+                'low': float(row['Low']),
+                'close': float(row['Close']),
+            })
+        logger.info(f"Returning {len(data)} bars for {symbol} {timeframe}")
+        logger.info(f"Data: {data}")
+        return jsonify({'data': data})
+    except ImportError as e:
+        logger.error(f"❌ Failed to import MT5Client: {e}")
+        return jsonify({'error': f'MT5Client import failed: {str(e)}'}), 500
+    except Exception as e:
+        logger.exception(f"Error fetching MT5 data: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # Error handlers
 @app.errorhandler(404)

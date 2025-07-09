@@ -9,6 +9,7 @@ import { FaProjectDiagram, FaBalanceScale, FaChartPie, FaExclamationTriangle } f
 const navItems = [
   { name: 'Dashboard', href: '/', icon: <MdDashboard size={22} /> },
   { name: 'Charts', href: '/charts', icon: <MdShowChart size={22} /> },
+  { name: 'Technicals', href: '/technicals', icon: <MdAutoGraph size={22} /> },
   { name: 'Calendar', href: '/calendar', icon: <MdCalendarToday size={22} /> },
   { name: 'Strategies', href: '/strategies', icon: <MdAutoGraph size={22} /> },
   { name: 'Backtesting', href: '/backtesting', icon: <MdHistory size={22} /> },
