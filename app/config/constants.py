@@ -1,4 +1,6 @@
 from pathlib import Path
+from datetime import datetime, timedelta
+import os
 
 # Project Root
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -15,18 +17,57 @@ LOG_FILE = LOG_DIR / "harupyquant.log"
 DEFAULT_LOG_LEVEL = "INFO"
 
 # Default path for the configuration file
-DEFAULT_CONFIG_PATH = 'config.ini'
+DEFAULT_CONFIG_PATH = os.path.abspath(os.path.join(PROJECT_ROOT, 'config.ini'))
 
 # Trading parameters
 MAX_DEVIATION = 5  # Maximum allowed deviation in points
 MAX_SLIPPAGE = 3  # Maximum allowed slippage in points
 MAGIC_NUMBER = 123456  # Unique identifier for trades placed by this EA
-INITIAL_CAPITAL = 10000  # Initial balance for backtest
+INITIAL_CAPITAL = 1000  # Initial balance for backtest
 LOT_SIZE = 0.01  # Lot size for backtest
-RISK_PER_TRADE = 1.0  # Risk per trade in percentage
+RISK_PER_TRADE = 0.01  # Risk per trade in percentage
 MAX_POSITIONS = 5  # Maximum number of concurrent positions
 MARGIN = 0.0025
 SPREAD = 0.00007
+
+# Indicator parameters
+ADR_PERIOD = 10 # Number of days over which to calculate the ADR
+STOP_ADR_RATIO = 10 # Stop loss level as a multiple of the ADR
+FAST_MA_PERIOD = 12 # Fast moving average period
+SLOW_MA_PERIOD = 48 # Slow moving average period
+BIAS_MA_PERIOD = 144 # Bias moving average period
+RSI_PERIOD = 15 # RSI period
+WILLIAMS_R_PERIOD = 6 # Williams %R period
+
+# Risk management variables 
+CORRELATION_PERIOD = 10       # Correlation period (rolling window 48 for intraday and 10 for daily)
+VOLATILITY_PERIOD = 5        # Volatility period (rolling window 24 for intraday and 5 for daily)
+CONFIDENCE_LEVEL = 0.95       # Percent to be covered in statistics
+RISK_THRESHOLD = 50         # Risk threshold for accepting new positions (10%)
+
+# Data settings
+INTERVAL_MINUTES = 5          # Trading timeframe minutes
+TIME_SHIFT=-3                 # Broker time shift from GMT 0
+DEFAULT_TIMEFRAME = f'M{INTERVAL_MINUTES}'  # Default timeframe for data retrieval
+CORE_TIMEFRAME = "D1"         # Timeframe to calculate core functions (H1 for intraday and D1 for daily)
+START_POS=0                   # Data retrieval index starting point
+END_POS=5000                   # Data retrieval index ending point
+END_POS_HTF=200               # Data retrieval index ending point for a higher timeframe (if any)
+END_POS_D1=ADR_PERIOD*3                 # Data retrieval index ending point for daily timeframe (whole last month)
+RANGE_START = datetime.now().strftime("%Y-%m-%d")         # Data retrieval range starting point
+RANGE_END = (datetime.now() - timedelta(days=END_POS_D1)).strftime("%Y-%m-%d")  # Data retrieval index starting point
+START_DATE = "2024-12-15"     # Data retrieval date starting point
+END_DATE = "2025-04-01"       # Data retrieval date ending point
+TEST_SYMBOL = "USDJPY"        # Random symbol for testing purposes
+DEFAULT_SYMBOL = TEST_SYMBOL  # Default symbol for testing and examples
+DEFAULT_START_CANDLE = START_POS  # Default start position for data retrieval
+DEFAULT_END_CANDLE = END_POS      # Default end position for data retrieval
+
+
+# Chart Colors
+CHART_BACKGROUND_COLOR = "#161A25"
+BULLISH_CANDLE_COLOR = "#26A69A"
+BEARISH_CANDLE_COLOR = "#EF5350"
 
 # Other system configurations (Add more as needed)
 LOG_LEVEL = "INFO" 
@@ -51,21 +92,6 @@ INDEX_SYMBOLS = [
 
 # Combine all symbols
 ALL_SYMBOLS = FOREX_SYMBOLS + COMMODITY_SYMBOLS + INDEX_SYMBOLS 
-
-# Backtest settings
-DEFAULT_SYMBOL = "GBPUSD"  # Symbol to backtest
-DEFAULT_TIMEFRAME = "M5"  # Timeframe to backtest
-DEFAULT_CORE_TIMEFRAME = "D1"  # Timeframe to calculate core functions 
-DEFAULT_START_DATE = "2025-01-01"  # Start date for backtest
-DEFAULT_END_DATE = "2025-03-31"  # End date for backtest
-DEFAULT_START_CANDLE = 0
-DEFAULT_END_CANDLE = 1000 
-
-
-# Chart Colors
-CHART_BACKGROUND_COLOR = "#161A25"
-BULLISH_CANDLE_COLOR = "#26A69A"
-BEARISH_CANDLE_COLOR = "#EF5350"
 
 
 # Dukascopy Instruments

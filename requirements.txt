@@ -2,20 +2,35 @@
 MetaTrader5
 
 # Web Framework
-# Flask==3.0.0
-# Werkzeug==3.0.1
-# gunicorn==21.2.0
+## Flask Web App Dependencies
+Flask
+Flask-CORS
+Flask-SocketIO
+python-socketio
+python-engineio
+
+## Additional dependencies for the web app
+Werkzeug
+Jinja2
+MarkupSafe
+itsdangerous
+click
+blinker
+
+# Development dependencies
+python-dotenv
+
 
 # Database
-# SQLAlchemy==2.0.25
-# alembic==1.13.1
-# psycopg2-binary==2.9.9
+# SQLAlchemy
+# alembic
+# psycopg2-binary
 
 # Authentication & Security
-# python-jose==3.3.0
-# passlib==1.7.4
-# python-dotenv==1.0.0
-# bcrypt==4.1.2
+# python-jose
+# passlib
+# python-dotenv
+# bcrypt
 
 # API Development
 requests
@@ -33,14 +48,21 @@ Ruff
 mypy
 
 # Utilities
-#python-dateutil
-#Pillow
+python-dateutil
+Pillow
 pandas
 numpy
+tqdm
+
+# Plotting
+bokeh
+matplotlib
+mplfinance
+plotly
 
 # Documentation
-#Sphinx
-#mkdocs
+Sphinx
+mkdocs
 
 # Task Queue
 # celery==5.3.6
@@ -49,3 +71,6 @@ numpy
 # Monitoring
 # sentry-sdk==1.39.1
 # prometheus-client==0.19.0 
+
+# Statistics
+scipy

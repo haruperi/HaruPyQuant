@@ -10,7 +10,7 @@ import os
 import sys
 import logging
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, time
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -266,9 +266,11 @@ def get_technical_indicators():
             logger.info(f"Fetching data for {symbol} {timeframe} from {start_date} to {end_date}")
             start_str = start_date[:10] if start_date else None
             end_str = end_date[:10] if end_date else None
-            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if start_str else None
-            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if end_str else None
-            df = mt5.fetch_data(symbol, timeframe, start_date=start_dt, end_date=end_dt)
+            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if start_str else None
+            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if end_str else None
+            start_of_day = datetime.combine(start_dt, time.min)  # 00:00:00
+            end_of_day = datetime.combine(end_dt, time.max)    # 23:59:59.999999
+            df = mt5.fetch_data(symbol, timeframe, start_date=start_of_day, end_date=end_of_day)
 
         if df is None or df.empty:
             logger.warning(f"No data returned for {symbol} {timeframe}")
@@ -341,9 +343,11 @@ def get_smc_data():
             logger.info(f"Fetching data for {symbol} {timeframe} from {start_date} to {end_date}")
             start_str = start_date[:10] if start_date else None
             end_str = end_date[:10] if end_date else None
-            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if start_str else None
-            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if end_str else None
-            df = mt5.fetch_data(symbol, timeframe, start_date=start_dt, end_date=end_dt)
+            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if start_str else None
+            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if end_str else None
+            start_of_day = datetime.combine(start_dt, time.min)  # 00:00:00
+            end_of_day = datetime.combine(end_dt, time.max)    # 23:59:59.999999
+            df = mt5.fetch_data(symbol, timeframe, start_date=start_of_day, end_date=end_of_day)
 
         if df is None or df.empty:
             logger.warning(f"No data returned for {symbol} {timeframe}")
@@ -358,7 +362,10 @@ def get_smc_data():
         
         # Convert DataFrame to JSON-serializable format
         smc_data = {}
-        for column in ['swingline', 'swing_value']:
+        for column in ['swingline', 'swingvalue', 'swingpoint', 'Resistance', 'Support', 'BOS', 'CHoCH', 
+                      'Bullish_Order_Block_Top', 'Bullish_Order_Block_Bottom', 'Bullish_Order_Block_Mitigated',
+                      'Bearish_Order_Block_Top', 'Bearish_Order_Block_Bottom', 'Bearish_Order_Block_Mitigated',
+                      'fib_signal', 'retest_signal']:
             if column in df.columns:
                 # Convert NaN and other non-serializable values to None
                 column_data = df[column].tolist()
@@ -430,9 +437,11 @@ def get_mt5_data():
             logger.info(f"Fetching data for {symbol} {timeframe} from {start_date} to {end_date}")
             start_str = start_date[:10] if start_date else None
             end_str = end_date[:10] if end_date else None
-            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if start_str else None
-            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc) if end_str else None
-            df = mt5.fetch_data(symbol, timeframe, start_date=start_dt, end_date=end_dt)
+            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if start_str else None
+            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if end_str else None
+            start_of_day = datetime.combine(start_dt, time.min)  # 00:00:00
+            end_of_day = datetime.combine(end_dt, time.max)    # 23:59:59.999999
+            df = mt5.fetch_data(symbol, timeframe, start_date=start_of_day, end_date=end_of_day)
 
         if df is None or df.empty:
             logger.warning(f"No data returned for {symbol} {timeframe}")
@@ -450,7 +459,6 @@ def get_mt5_data():
                 'close': round(float(row['Close']), 5),
             })
         logger.info(f"Returning {len(data)} bars for {symbol} {timeframe}")
-        #logger.info(f"Data: {data}")
         return jsonify({'data': data})
     except ImportError as e:
         logger.error(f"❌ Failed to import MT5Client: {e}")
