@@ -33,7 +33,7 @@ const calculateEMA = (data: number[], period: number): number[] => {
 
 
 
-export default function TechnicalsPage() {
+export default function IndicatorsPage() {
   // =================================================================================
   // Component State and Refs
   // =================================================================================
@@ -694,7 +694,7 @@ export default function TechnicalsPage() {
   // =================================================================================
   return (
     <div className="p-6">
-      <h1 className="text-3xl font-bold text-white mb-6">Technicals</h1>
+      <h1 className="text-3xl font-bold text-white mb-6">Indicators Analysis</h1>
       <div
         className={`bg-[#23272F] rounded-lg p-0 flex flex-col${isFullscreen ? " fixed inset-0 z-50" : ""}`}
         style={{ height: isFullscreen ? "100vh" : "calc(100vh - 120px)" }}

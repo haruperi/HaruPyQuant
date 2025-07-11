@@ -3,17 +3,21 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { MdDashboard, MdShowChart, MdAutoGraph, MdHistory, MdSettings, MdCalendarToday, MdBuild, MdExpandMore, MdExpandLess, MdAssessment, MdBook } from 'react-icons/md';
+import { MdDashboard, MdShowChart, MdAutoGraph, MdHistory, MdSettings, MdCalendarToday, MdBuild, MdExpandMore, MdExpandLess, MdAssessment, MdBook, MdQueryStats } from 'react-icons/md';
 import { FaProjectDiagram, FaBalanceScale, FaChartPie, FaExclamationTriangle } from 'react-icons/fa';
 
 const navItems = [
   { name: 'Dashboard', href: '/', icon: <MdDashboard size={22} /> },
   { name: 'Charts', href: '/charts', icon: <MdShowChart size={22} /> },
-  { name: 'Technicals', href: '/technicals', icon: <MdAutoGraph size={22} /> },
-  { name: 'Strategies', href: '/strategies', icon: <MdAutoGraph size={22} /> },
-  { name: 'Backtesting', href: '/backtesting', icon: <MdHistory size={22} /> },
   // Other items handled separately
   { name: 'Settings', href: '/settings', icon: <MdSettings size={22} /> }
+];
+
+const technicalsTools = [
+  { name: 'Indicators', href: '/indicators', icon: <MdAutoGraph size={18} /> },
+  { name: 'Strategies', href: '/strategies', icon: <FaProjectDiagram size={18} /> },
+  { name: 'Backtesting', href: '/backtesting', icon: <MdHistory size={18} /> },
+  { name: 'Crypto Heatmap', href: '/crypto-heatmap', icon: <FaChartPie size={18} /> },
 ];
 
 const fundamentalsTools = [
@@ -31,7 +35,8 @@ const tradingTools = [
 const Sidebar = () => {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [fundamentalsOpen, setFundamentalsOpen] = useState(false);
-  const pathname = usePathname();
+  const [technicalsOpen, setTechnicalsOpen] = useState(false);
+  const pathname = usePathname() || '';
 
   return (
     <aside className="h-screen w-56 bg-[#181A20] text-white flex flex-col p-4 shadow-lg">
@@ -58,6 +63,48 @@ const Sidebar = () => {
               </li>
             );
           })}
+          {/* Technicals with submenu */}
+          <li>
+            <button
+              className={`flex items-center w-full px-3 py-2 rounded transition-colors focus:outline-none ${
+                technicalsTools.some(tool => pathname.startsWith(tool.href))
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'hover:bg-[#23272F] text-gray-300'
+              }`}
+              onClick={() => setTechnicalsOpen((open) => !open)}
+              aria-expanded={technicalsOpen}
+            >
+              <span className={`mr-3 ${technicalsTools.some(tool => pathname.startsWith(tool.href)) ? 'text-white' : 'text-blue-300'}`}>
+                <MdQueryStats size={22} />
+              </span>
+              <span className="flex-1 text-left">Technicals</span>
+              <span>{technicalsOpen ? <MdExpandLess size={20} /> : <MdExpandMore size={20} />}</span>
+            </button>
+            {technicalsOpen && (
+              <ul className="ml-8 mt-1 space-y-1">
+                {technicalsTools.map((tool) => {
+                  const isActive = pathname === tool.href;
+                  return (
+                    <li key={tool.name}>
+                      <Link
+                        href={tool.href}
+                        className={`flex items-center px-2 py-1 rounded transition-colors text-sm ${
+                          isActive
+                            ? 'bg-blue-600 text-white shadow-lg'
+                            : 'hover:bg-[#23272F] text-gray-300'
+                        }`}
+                      >
+                        <span className={`mr-2 ${isActive ? 'text-white' : 'text-blue-200'}`}>
+                          {tool.icon}
+                        </span>
+                        <span>{tool.name}</span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </li>
           {/* Fundamentals with submenu */}
           <li>
             <button
