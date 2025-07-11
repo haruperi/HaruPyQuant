@@ -1,0 +1,16 @@
+[MONGO]
+# Please enter your MongoDB connection string below.
+# Example: ConnectionString = mongodb://user:password@host:port/database
+ConnectionString = YOUR_CONNECTION_STRING_HERE
+
+[MT5]
+# MetaTrader 5 connection details
+Login = 
+Password = 
+Server = 
+TerminalPath = 
+
+[DUKASCOPY]
+# Dukascopy credentials (if needed)
+Username = 
+Password = 

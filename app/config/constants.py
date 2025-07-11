@@ -72,6 +72,10 @@ BEARISH_CANDLE_COLOR = "#EF5350"
 # Other system configurations (Add more as needed)
 LOG_LEVEL = "INFO" 
 
+# MongoDB settings
+MONGO_DB_NAME = "haru_pyquant"
+MONGO_COLLECTION_NAME = "forex_sample"
+
 # Trading symbols by asset class
 FOREX_SYMBOLS = [
     "AUDCAD", "AUDCHF", "AUDJPY", "AUDNZD", "AUDUSD",

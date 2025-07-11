@@ -25,6 +25,7 @@ python-dotenv
 # SQLAlchemy
 # alembic
 # psycopg2-binary
+pymongo[srv]
 
 # Authentication & Security
 # python-jose
