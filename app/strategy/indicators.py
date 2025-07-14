@@ -293,12 +293,14 @@ class SmartMoneyConcepts:
 
                     # Handle case where swingline is flat but lower/higher than the last same direction swingline, then keep it dont remove it 
                     # Usually cased by news, rapid price movement or midnight gaps
-                    same_swing_prev_group_id = group_id - 2
-                    same_swing_prev_group = df[group_ids == same_swing_prev_group_id]
-                    if group_data['swingline'].iloc[-1] == 1 and same_swing_prev_group['swingline'].iloc[-1] == 1 and group_data['swingvalue'].iloc[-1] > same_swing_prev_group['swingvalue'].iloc[-1]:
-                        continue
-                    if group_data['swingline'].iloc[-1] == -1 and same_swing_prev_group['swingline'].iloc[-1] == -1 and group_data['swingvalue'].iloc[-1] < same_swing_prev_group['swingvalue'].iloc[-1]:
-                        continue
+                    if group_id > 2:  # Only check if there's a group 2 positions back
+                        same_swing_prev_group_id = group_id - 2
+                        same_swing_prev_group = df[group_ids == same_swing_prev_group_id]
+                        if len(same_swing_prev_group) > 0:  # Check if the group exists and has data
+                            if group_data['swingline'].iloc[-1] == 1 and same_swing_prev_group['swingline'].iloc[-1] == 1 and group_data['swingvalue'].iloc[-1] > same_swing_prev_group['swingvalue'].iloc[-1]:
+                                continue
+                            if group_data['swingline'].iloc[-1] == -1 and same_swing_prev_group['swingline'].iloc[-1] == -1 and group_data['swingvalue'].iloc[-1] < same_swing_prev_group['swingvalue'].iloc[-1]:
+                                continue
 
                     if len(prev_group) > 0:
                         prev_swingline_value = prev_group['swingline'].iloc[0]
