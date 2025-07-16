@@ -24,6 +24,22 @@ except ImportError as e:
     logger = get_logger(__name__)
     logger.warning(f"Could not import streaming modules: {e}")
 
+# Import caching functionality
+try:
+    from .caching import (
+        DataCache,
+        CacheConfig,
+        CacheType,
+        CachePolicy,
+        MemoryCache,
+        DiskCache,
+        create_cache_config,
+        get_cache_stats_summary
+    )
+except ImportError as e:
+    logger = get_logger(__name__)
+    logger.warning(f"Could not import caching modules: {e}")
+
 # Get logger instance using custom configuration
 logger = get_logger(__name__)
 
@@ -42,7 +58,15 @@ __all__ = [
     'WebSocketStreamHandler',
     'create_tick_callback',
     'create_ohlcv_callback',
-    'create_data_logger_callback'
+    'create_data_logger_callback',
+    'DataCache',
+    'CacheConfig',
+    'CacheType',
+    'CachePolicy',
+    'MemoryCache',
+    'DiskCache',
+    'create_cache_config',
+    'get_cache_stats_summary'
 ]
 
 # Common Data Functions
