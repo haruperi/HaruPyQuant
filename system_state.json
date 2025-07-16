@@ -1,0 +1,14 @@
+{
+  "timestamp": "2025-07-16T12:05:39.548284",
+  "status": "stopped",
+  "uptime": 48.20545244216919,
+  "memory_usage": 22.5234375,
+  "cpu_usage": 0.0,
+  "active_connections": 0,
+  "active_positions": 0,
+  "last_error": null,
+  "restart_count": 0,
+  "max_restarts": 5,
+  "recovery_attempts": 0,
+  "max_recovery_attempts": 3
+}
