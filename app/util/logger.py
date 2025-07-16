@@ -1,9 +1,17 @@
-import logging
 import os
-from logging.handlers import RotatingFileHandler
 import sys
+from pathlib import Path            
+import logging
+from logging.handlers import RotatingFileHandler
 
-from app.config.constants import DEFAULT_LOG_LEVEL, LOG_DIR, LOG_FILE
+# Add project root to the Python path   
+PROJECT_ROOT = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+sys.path.insert(0, str(PROJECT_ROOT))
+
+DEFAULT_LOG_LEVEL = "INFO"
+LOG_DIR = PROJECT_ROOT / "logs"
+LOG_FILE = LOG_DIR / "harupyquant.log"
+
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", DEFAULT_LOG_LEVEL).upper()
 

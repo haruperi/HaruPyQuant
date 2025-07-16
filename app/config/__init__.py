@@ -1,3 +1,3 @@
-from . import constants
+from . import setup
 
-__all__ = ["constants"]
+__all__ = ["setup"]
