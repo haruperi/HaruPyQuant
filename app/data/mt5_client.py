@@ -2,27 +2,30 @@
 Manages the connection to the MetaTrader 5 terminal.
 """
 
-import MetaTrader5 as mt5
+import MetaTrader5 as mt5  # type: ignore
 from typing import Optional, Dict, List, Union, Any
 from datetime import datetime, timedelta, UTC
 import pandas as pd
-import logging
 import os
 import time # Import time module for sleep
 from configparser import ConfigParser
-from app.config.constants import DEFAULT_CONFIG_PATH, ALL_SYMBOLS, DEFAULT_TIMEFRAME
+
+# Suppress type checking for MetaTrader5 module
 
 
 # Constants for messages
 _MSG_NOT_CONNECTED = "Not connected to MT5"
 
-# Assuming logger is configured elsewhere, get the logger instance
-logger = logging.getLogger(__name__)
+# Import the custom logger function
+from app.util.logger import get_logger
+
+# Get logger instance using custom configuration
+logger = get_logger(__name__)
 
 class MT5Client:
     """Handles the connection and authentication to the MT5 terminal."""
 
-    def __init__(self, config_path=DEFAULT_CONFIG_PATH):
+    def __init__(self, config_path=None, symbols=None):
         """
         Initializes the MT5 connection using credentials from the config file.
 
@@ -30,9 +33,13 @@ class MT5Client:
             config_path (str): Path to the configuration file. Defaults to DEFAULT_CONFIG_PATH.
         """
         self.config = ConfigParser(interpolation=None)
+        if config_path is None:
+            logger.error("No configuration file path provided. Please provide a valid configuration file path.")
+            raise ValueError("No configuration file path provided. Please provide a valid configuration file path.")
+        
         if not os.path.exists(config_path):
             logger.error(f"Configuration file not found: {config_path}")
-            raise FileNotFoundError(f"Configuration file not found: {config_path}")
+            raise FileNotFoundError(f"Configuration file not found: {config_path}. Please provide a valid configuration file path.")
         
         self.config.read(config_path)
         
@@ -40,7 +47,9 @@ class MT5Client:
         self.password = self.config['MT5']['Password']
         self.server = self.config['MT5']['Server']
         self.path = self.config['MT5']['Path']
-        
+
+        self.symbols = symbols or []
+
         # Connection attempt parameters
         self.max_retries = 3
         self.retry_delay = 5 # seconds
@@ -60,25 +69,25 @@ class MT5Client:
             attempts += 1
             logger.info(f"Initializing MT5 connection (Attempt {attempts}/{self.max_retries})...")
             
-            if mt5.initialize(login=self.login, password=self.password, server=self.server, path=self.path):
+            if mt5.initialize(login=self.login, password=self.password, server=self.server, path=self.path):    # type: ignore
                 logger.info("MT5 initialized successfully. Verifying account info...")
-                account_info = mt5.account_info()
+                account_info = mt5.account_info()  # type: ignore
                 if account_info:
                     logger.info(f"Connected to account: {account_info.login} on server {account_info.server}")
                     self._connected = True
                     self.initialize_symbols()
                     return True # Successfully connected
                 else:
-                    error_code = mt5.last_error()
+                    error_code = mt5.last_error()  # type: ignore
                     logger.error(f"Failed to get account info after successful initialization, error code = {error_code}")
-                    mt5.shutdown() # Shutdown before next attempt
+                    mt5.shutdown()  # type: ignore
                     # Treat this as a connection failure for retry purposes
             else:
-                error_code = mt5.last_error()
+                error_code = mt5.last_error()  # type: ignore
                 logger.error(f"MT5 initialize() failed on attempt {attempts}, error code = {error_code}")
                 # mt5.shutdown() might be implicitly called or not needed if initialize failed,
                 # but calling it ensures cleanup.
-                mt5.shutdown()
+                mt5.shutdown()  # type: ignore
             
             # Wait before the next retry, unless it's the last attempt
             if attempts < self.max_retries:
@@ -94,7 +103,7 @@ class MT5Client:
         """Shuts down the MetaTrader 5 connection."""
         if self._connected:
             logger.info("Shutting down MT5 connection...")
-            mt5.shutdown()
+            mt5.shutdown()  # type: ignore
             self._connected = False
             logger.info("MT5 connection shut down.")
         else:
@@ -103,9 +112,9 @@ class MT5Client:
     def is_connected(self):
         """Checks if the MT5 terminal is connected."""
         # Perform a light check, e.g., getting terminal info
-        terminal_info = mt5.terminal_info()
+        terminal_info = mt5.terminal_info()  # type: ignore
         if terminal_info is None:
-            logger.warning(f"MT5 connection lost (terminal_info failed), error code: {mt5.last_error()}")
+            logger.warning(f"MT5 connection lost (terminal_info failed), error code: {mt5.last_error()}")  # type: ignore
             self._connected = False
             # Attempt to reconnect automatically or signal failure
             # self.connect() # Optional: uncomment for auto-reconnect attempt
@@ -151,7 +160,7 @@ class MT5Client:
                 
             available_symbol_names = {symbol.name for symbol in available_symbols}
             
-            for symbol in ALL_SYMBOLS:
+            for symbol in self.symbols:
                 if symbol not in available_symbol_names:
                     logger.warning(f"Symbol {symbol} not available in broker's symbol list")
                     continue
@@ -172,13 +181,12 @@ class MT5Client:
                 self._initialized = True
             
             # Log summary
-            visible_symbols = [s for s in ALL_SYMBOLS if self.is_symbol_visible(s)]
-            logger.info(f"Symbol initialization completed. {len(visible_symbols)}/{len(ALL_SYMBOLS)} symbols visible in market watch")
+            visible_symbols = [s for s in self.symbols if self.is_symbol_visible(s)]
+            logger.info(f"Symbol initialization completed. {len(visible_symbols)}/{len(self.symbols)} symbols visible in market watch")
             
         except Exception as e:
             logger.error(f"Error initializing symbols: {e}")
             raise
-
 
     def symbols_get(self):
         """
@@ -230,7 +238,6 @@ class MT5Client:
             logger.error(f"Error checking symbol visibility for {symbol}: {e}")
             return False
     
-
     def get_account_info(self) -> Dict[str, Any]:
         """
         Get account information.
@@ -265,7 +272,6 @@ class MT5Client:
             logger.error(f"Error getting account info: {e}")
             raise
 
-    
     def get_symbol_info(self, symbol: str) -> Dict[str, Any]:
         """
         Get symbol information.
@@ -295,10 +301,11 @@ class MT5Client:
         if not self.is_connected():
             logger.error(_MSG_NOT_CONNECTED)
             return None
-        tick = mt5.symbol_info_tick(symbol)
+        tick = mt5.symbol_info_tick(symbol)  # type: ignore
         if tick:
-            return tick
-        logger.error(f"Failed to get tick for {symbol}: {mt5.last_error()}")
+            # Convert named tuple to dictionary
+            return tick._asdict()
+        logger.error(f"Failed to get tick for {symbol}: {mt5.last_error()}")  # type: ignore
         return None
 
     def get_orders(self) -> List[Dict[str, Any]]:
@@ -306,9 +313,9 @@ class MT5Client:
         if not self.is_connected():
             logger.error(_MSG_NOT_CONNECTED)
             return []
-        orders = mt5.orders_get()
+        orders = mt5.orders_get()  # type: ignore
         if orders is None:
-            logger.error(f"Failed to get orders: {mt5.last_error()}")
+            logger.error(f"Failed to get orders: {mt5.last_error()}")  # type: ignore
             return []
         return [order._asdict() for order in orders]
 
@@ -317,9 +324,9 @@ class MT5Client:
         if not self.is_connected():
             logger.error(_MSG_NOT_CONNECTED)
             return []
-        positions = mt5.positions_get()
+        positions = mt5.positions_get()  # type: ignore
         if positions is None:
-            logger.error(f"Failed to get positions: {mt5.last_error()}")
+            logger.error(f"Failed to get positions: {mt5.last_error()}")  # type: ignore
             return []
         return [pos._asdict() for pos in positions]
 
@@ -330,14 +337,14 @@ class MT5Client:
             return None
 
         logger.info(f"Sending order request: {request}")
-        result = mt5.order_send(request)
+        result = mt5.order_send(request)  # type: ignore
 
         if result is None:
-            logger.error(f"Order send failed: {mt5.last_error()}")
+            logger.error(f"Order send failed: {mt5.last_error()}")  # type: ignore
             return None
 
         logger.info(f"Order send result: {result}")
-        if result.retcode != mt5.TRADE_RETCODE_DONE:
+        if result.retcode != mt5.TRADE_RETCODE_DONE:  # type: ignore
             logger.error(f"Order send rejected: retcode={result.retcode}, comment={result.comment}")
             return None
 
@@ -358,16 +365,7 @@ class MT5Client:
         }
         return timeframe_map.get(timeframe.upper())
     
-
-    def _get_rates_from_mt5(
-        self,
-        symbol: str,
-        tf: int,
-        start_pos: Optional[int] = None,
-        end_pos: Optional[int] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
-    ):
+    def _get_rates_from_mt5(self, symbol: str, tf: int, start_pos: Optional[int] = None, end_pos: Optional[int] = None, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> Optional[List[Dict[str, Any]]]:
         """Internal helper to fetch raw rates from MT5."""
         if start_date is not None or end_date is not None:
             # Use UTC timestamps consistently
@@ -400,11 +398,7 @@ class MT5Client:
         logger.info(f"Fetched {len(rates)} bars for {symbol}")
         return rates
 
-    def _format_rates_dataframe(
-        self,
-        rates,
-        symbol: str
-    ) -> Optional[pd.DataFrame]:
+    def _format_rates_dataframe(self, rates, symbol: str) -> Optional[pd.DataFrame]:
         """Internal helper to format raw rates into a DataFrame."""
         if rates is None or len(rates) == 0:
             logger.warning(f"No rate data returned for {symbol} to format.")
@@ -412,8 +406,22 @@ class MT5Client:
             
         try:
             df = pd.DataFrame(rates)
+            
+            # Log the actual columns we received for debugging
+            logger.debug(f"Original columns for {symbol}: {list(df.columns)}")
+            
+            # Check if we have the expected columns before renaming
+            expected_columns = ['time', 'open', 'high', 'low', 'close', 'tick_volume']
+            missing_columns = [col for col in expected_columns if col not in df.columns]
+            
+            if missing_columns:
+                logger.error(f"Missing columns for {symbol}: {missing_columns}")
+                logger.error(f"Available columns: {list(df.columns)}")
+                return None
+            
+            # Rename columns
             df.rename(columns={
-                'time': 'timestamp',
+                'time': 'datetime',
                 'open': 'Open',
                 'high': 'High',
                 'low': 'Low',
@@ -421,23 +429,25 @@ class MT5Client:
                 'tick_volume': 'Volume'
             }, inplace=True)
 
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s', utc=True)
-            df = df[['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume']]
-            df.set_index('timestamp', inplace=True)
-            return df
+            # Convert datetime
+            df['datetime'] = pd.to_datetime(df['datetime'], unit='s', utc=True)
+            
+            # Select only the columns we need
+            required_columns = ['datetime', 'Open', 'High', 'Low', 'Close', 'Volume']
+            df = df[required_columns].copy()  # Use .copy() to avoid SettingWithCopyWarning
+            
+            # Set index
+            df.set_index('datetime', inplace=True)
+            
+            logger.debug(f"Successfully formatted DataFrame for {symbol} with shape: {df.shape}")
+            return df  # type: ignore
+            
         except Exception as e:
             logger.exception(f"Error formatting DataFrame for {symbol}: {e}")
             return None
 
-    def fetch_data(
-        self,
-        symbol: str,
-        timeframe: str = DEFAULT_TIMEFRAME,
-        start_pos: Optional[int] = None,
-        end_pos: Optional[int] = None, # Note: end_pos is converted to count for copy_rates_from_pos
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
-    ) -> Optional[pd.DataFrame]:
+    def fetch_data(self, symbol: str, timeframe: str = "D1", start_pos: Optional[int] = None, end_pos: Optional[int] = None, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> Optional[pd.DataFrame]:
+
         """
         Fetch OHLCV data from MT5.
         
@@ -474,3 +484,6 @@ class MT5Client:
             # Catch unexpected errors during timeframe conversion or helper calls
             logger.exception(f"Unexpected error during fetch_data for {symbol}: {e}")
             return None 
+
+
+# TODO: Write documentation for the MT5Client class

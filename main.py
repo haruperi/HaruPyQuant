@@ -1,6 +1,7 @@
 from app.config.setup import *
 from app.util.crash_recovery import get_recovery_manager, initialize_recovery_manager
 import time
+from app.data import *
 
 logger = get_logger(__name__)
 
@@ -105,5 +106,36 @@ def main():
             recovery_manager.graceful_shutdown()
 
 
+
+def test_mt5_client():
+    try:
+        mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=ALL_SYMBOLS)
+        df = mt5_client.fetch_data(TEST_SYMBOL, DEFAULT_TIMEFRAME, start_pos=START_POS, end_pos=END_POS)
+        
+        if df is not None and validate_ohlcv_data(df):
+            logger.info(f"Successfully fetched {len(df)} rows of data")
+            print("DataFrame:")
+            print(df.head())
+
+
+
+
+
+           
+        else:
+            logger.error("Failed to fetch data - DataFrame is None")
+            
+    except Exception as e:
+        logger.error(f"Error in test_mt5_client: {e}")
+        print(f"Error: {e}")
+
+
+
+
+
+
+
+
 if __name__ == "__main__":
-    main() 
+    #main() 
+    test_mt5_client()

@@ -2,6 +2,7 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
+from configparser import ConfigParser
 
 # Add project root to the Python path   
 PROJECT_ROOT = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -13,13 +14,29 @@ from app.util.logger import *
 # Common directories
 APP_DIR = PROJECT_ROOT / "app"
 CONFIG_DIR = APP_DIR / "config"
-DATA_DIR = APP_DIR / "data"
 TESTS_DIR = PROJECT_ROOT / "tests"
-
-
 
 # Default path for the configuration file
 DEFAULT_CONFIG_PATH = os.path.abspath(os.path.join(PROJECT_ROOT, 'config.ini'))
+
+# Load configuration
+config = ConfigParser(interpolation=None)
+
+if DEFAULT_CONFIG_PATH is None:
+    raise ValueError("No configuration file path provided. Please provide a valid configuration file path.")
+        
+if not os.path.exists(DEFAULT_CONFIG_PATH):
+    raise FileNotFoundError(f"Configuration file not found: {DEFAULT_CONFIG_PATH}. Please provide a valid configuration file path.")
+        
+config.read(DEFAULT_CONFIG_PATH)
+        
+MT5_LOGIN = int(config['MT5']['Login'])
+MT5_PASSWORD = config['MT5']['Password']
+MT5_SERVER = config['MT5']['Server']
+MT5_PATH = config['MT5']['Path']
+
+JBLANKED_API_KEY = config['JBLANKED']['API_KEY']
+
 
 # Trading parameters
 MAX_DEVIATION = 5  # Maximum allowed deviation in points
@@ -48,23 +65,28 @@ VOLATILITY_PERIOD = 5        # Volatility period (rolling window 24 for intraday
 CONFIDENCE_LEVEL = 0.95       # Percent to be covered in statistics
 RISK_THRESHOLD = 50         # Risk threshold for accepting new positions (10%)
 
-# Data settings
+# Data Settings
+DATA_DIR = PROJECT_ROOT / "data"
+TESTING_RESULTS_FILE = DATA_DIR / "testing_results.csv"
+from app.data.mt5_client import MT5Client
+
 INTERVAL_MINUTES = 5          # Trading timeframe minutes
 TIME_SHIFT=-3                 # Broker time shift from GMT 0
 DEFAULT_TIMEFRAME = f'M{INTERVAL_MINUTES}'  # Default timeframe for data retrieval
 CORE_TIMEFRAME = "D1"         # Timeframe to calculate core functions (H1 for intraday and D1 for daily)
 START_POS=0                   # Data retrieval index starting point
-END_POS=5000                   # Data retrieval index ending point
+END_POS=1000                   # Data retrieval index ending point
 END_POS_HTF=200               # Data retrieval index ending point for a higher timeframe (if any)
 END_POS_D1=ADR_PERIOD*3                 # Data retrieval index ending point for daily timeframe (whole last month)
 RANGE_START = datetime.now().strftime("%Y-%m-%d")         # Data retrieval range starting point
 RANGE_END = (datetime.now() - timedelta(days=END_POS_D1)).strftime("%Y-%m-%d")  # Data retrieval index starting point
 START_DATE = "2024-12-15"     # Data retrieval date starting point
 END_DATE = "2025-04-01"       # Data retrieval date ending point
-TEST_SYMBOL = "USDJPY"        # Random symbol for testing purposes
+TEST_SYMBOL = "GBPUSD"        # Random symbol for testing purposes
 DEFAULT_SYMBOL = TEST_SYMBOL  # Default symbol for testing and examples
 DEFAULT_START_CANDLE = START_POS  # Default start position for data retrieval
 DEFAULT_END_CANDLE = END_POS      # Default end position for data retrieval
+
 
 # Chart Colors
 CHART_BACKGROUND_COLOR = "#161A25"
