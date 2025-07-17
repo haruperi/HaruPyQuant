@@ -2,6 +2,8 @@ from app.config.setup import *
 from app.util.crash_recovery import get_recovery_manager, initialize_recovery_manager
 import time
 from app.data import *
+from app.strategy.indicators import *
+from app.strategy.naive_trend import NaiveTrendStrategy
 
 logger = get_logger(__name__)
 
@@ -109,7 +111,7 @@ def main():
 
 def test_mt5_client():
     try:
-        mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=ALL_SYMBOLS)
+        mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=ALL_SYMBOLS, demo=True)
         df = mt5_client.fetch_data(TEST_SYMBOL, DEFAULT_TIMEFRAME, start_pos=START_POS, end_pos=END_POS)
         
         if df is not None and validate_ohlcv_data(df):
@@ -138,4 +140,15 @@ def test_mt5_client():
 
 if __name__ == "__main__":
     #main() 
-    test_mt5_client()
+    #test_mt5_client()
+
+    mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=ALL_SYMBOLS, demo=True)
+    df = mt5_client.fetch_data("EURUSD", "M5", start_pos=0, end_pos=300)
+
+  
+    if df is not None:
+        strategy = NaiveTrendStrategy(parameters={"fast_ema_period": 12, "slow_ema_period": 24, "bias_ema_period": 72})
+        signals = strategy.get_signals(df)
+        print(signals)
+    else:
+        print("Failed to fetch data")

@@ -25,13 +25,14 @@ logger = get_logger(__name__)
 class MT5Client:
     """Handles the connection and authentication to the MT5 terminal."""
 
-    def __init__(self, config_path=None, symbols=None):
+    def __init__(self, config_path=None, symbols=None, demo=True):
         """
         Initializes the MT5 connection using credentials from the config file.
 
         Args:
             config_path (str): Path to the configuration file. Defaults to DEFAULT_CONFIG_PATH.
         """
+
         self.config = ConfigParser(interpolation=None)
         if config_path is None:
             logger.error("No configuration file path provided. Please provide a valid configuration file path.")
@@ -43,10 +44,18 @@ class MT5Client:
         
         self.config.read(config_path)
         
-        self.login = int(self.config['MT5']['Login'])
-        self.password = self.config['MT5']['Password']
-        self.server = self.config['MT5']['Server']
-        self.path = self.config['MT5']['Path']
+        if demo:
+            self.login = int(self.config['DEMO_MT5']['Login'])
+            self.password = self.config['DEMO_MT5']['Password']
+            self.server = self.config['DEMO_MT5']['Server']
+            self.path = self.config['DEMO_MT5']['Path']
+        else:
+            self.login = int(self.config['MT5']['Login'])
+            self.password = self.config['MT5']['Password']
+            self.server = self.config['MT5']['Server']
+            self.path = self.config['MT5']['Path']
+
+
 
         self.symbols = symbols or []
 

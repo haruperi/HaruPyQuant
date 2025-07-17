@@ -8,22 +8,69 @@ import scipy.stats as stats
 import time
 from datetime import datetime, timedelta
 
-# Add project root to the Python path   
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-sys.path.insert(0, project_root)
+# # Add project root to the Python path   
+# project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+# sys.path.insert(0, project_root)
 
-from app.config.constants import RISK_PER_TRADE, INITIAL_CAPITAL, DEFAULT_TIMEFRAME, DEFAULT_START_CANDLE, DEFAULT_END_CANDLE, END_POS_D1, CORE_TIMEFRAME, VOLATILITY_PERIOD, CORRELATION_PERIOD, CONFIDENCE_LEVEL
-from app.util.logger import get_logger
-from app.data.mt5_client import MT5Client
+# from app.config.constants import RISK_PER_TRADE, INITIAL_CAPITAL, DEFAULT_TIMEFRAME, DEFAULT_START_CANDLE, DEFAULT_END_CANDLE, END_POS_D1, CORE_TIMEFRAME, VOLATILITY_PERIOD, CORRELATION_PERIOD, CONFIDENCE_LEVEL, RISK_THRESHOLD, FOREX_SYMBOLS, ALL_SYMBOLS
+# from app.util.logger import get_logger
+# from app.data.mt5_client import MT5Client
+from app.config.setup import *
 from app.strategy.indicators import get_adr
 
 logger = get_logger(__name__)
+
+def get_symbol_combinations(currency_actions: dict) -> dict:
+    """
+    Creates forex pair combinations from currency actions dictionary.
+    
+    Args:
+        currency_actions: Dictionary with currency as key and action as value
+            Example: {"AUD": "Buy", "USD": "Sell", "JPY": "Sell"}
+            
+    Returns:
+        dict: Dictionary with forex pair as key and action as value
+            Example: {"AUDUSD": "Buy", "EURAUD": "Sell", "GBPAUD": "Sell", ...}
+    """
+    symbol_actions = {}
+    
+    # Get all currencies from the input dictionary
+    currencies = list(currency_actions.keys())
+    
+    # Iterate through all forex symbols
+    for symbol in FOREX_SYMBOLS:
+        # Extract base and quote currencies from the symbol
+        # Forex symbols are typically 6 characters: BASE + QUOTE
+        base_currency = symbol[:3]
+        quote_currency = symbol[3:]
+        
+        # Check if both currencies are in the dictionary first
+        if base_currency in currency_actions and quote_currency in currency_actions:
+            # If both currencies are in the dictionary, prioritize base currency action
+            # This handles cases like USDJPY where both USD and JPY are "Sell"
+            base_action = currency_actions[base_currency]
+            symbol_actions[symbol] = base_action
+            
+        # Check if base currency is in our currency_actions dictionary
+        elif base_currency in currency_actions:
+            base_action = currency_actions[base_currency]
+            symbol_actions[symbol] = base_action
+            
+        # Check if quote currency is in our currency_actions dictionary
+        elif quote_currency in currency_actions:
+            quote_action = currency_actions[quote_currency]
+            # Flip the action when the currency is the quote currency
+            flipped_action = "Sell" if quote_action == "Buy" else "Buy"
+            symbol_actions[symbol] = flipped_action
+    
+    logger.info(f"Generated {len(symbol_actions)} symbol combinations from {len(currencies)} currencies")
+    return symbol_actions
 
 class RiskManager:
     """
     Manages trade risk, including position sizing.
     """
-    def __init__(self, mt5_client: MT5Client, account_balance: float = INITIAL_CAPITAL, risk_percentage: float = RISK_PER_TRADE, start_pos: int = DEFAULT_START_CANDLE, end_pos: int = DEFAULT_END_CANDLE, timeframe: str = CORE_TIMEFRAME, input_date: str = None):
+    def __init__(self, mt5_client: MT5Client, account_balance: float = INITIAL_CAPITAL, risk_percentage: float = RISK_PER_TRADE, start_pos: int = DEFAULT_START_CANDLE, end_pos: int = DEFAULT_END_CANDLE, timeframe: str = CORE_TIMEFRAME, input_date: Optional[str] = None):
         self.start_pos = start_pos
         self.end_pos = end_pos 
         self.input_date = input_date 
@@ -71,7 +118,8 @@ class RiskManager:
                     
                     # For D1 timeframe, if last bar is from today, remove it
                     if self.timeframe == "D1":
-                        if last_bar_time.date() == current_time.date():
+                        #if last_bar_time.date() == current_time.date()
+                        if str(last_bar_time)[:10] == str(current_time.date()):
                             df = df.iloc[:-1]  # Remove the last (incomplete) bar
                             logger.info(f"Removed current incomplete D1 bar for {symbol} to avoid look-ahead bias")
                     
@@ -157,7 +205,7 @@ class RiskManager:
         risk_per_trade_amount = self.account_balance * self.risk_percentage 
 
         # Get the tick value and convert stop loss to money
-        tick_value = symbol_info.trade_tick_value
+        tick_value = symbol_info['trade_tick_value']
         if tick_value <= 0:
             logger.error(f"Invalid tick value: {tick_value}")
             return 0
@@ -166,19 +214,19 @@ class RiskManager:
         #stop_loss_points = stop_loss_pips * 10
 
         # Convert stop loss pips to the symbol's base currency value
-        point_size = symbol_info.point
+        point_size = symbol_info['point']
         stop_loss_in_currency = stop_loss_pips * point_size * 10 
-        risk_per_lot = stop_loss_in_currency * symbol_info.trade_tick_value / symbol_info.trade_tick_size
+        risk_per_lot = stop_loss_in_currency * symbol_info['trade_tick_value'] / symbol_info['trade_tick_size']
 
         position_size_lots = risk_per_trade_amount / risk_per_lot
 
         # Round down to the nearest valid lot step
-        lot_step = symbol_info.volume_step
+        lot_step = symbol_info['volume_step']
         position_size_lots = (position_size_lots // lot_step) * lot_step
 
         # Ensure minimum and maximum lot sizes
-        min_lot = symbol_info.volume_min
-        max_lot = symbol_info.volume_max
+        min_lot = symbol_info['volume_min']
+        max_lot = symbol_info['volume_max']
         position_size_lots = max(min_lot, min(max_lot, position_size_lots))
 
         return position_size_lots
@@ -367,7 +415,7 @@ class RiskManager:
                 logger.debug(f"Using last close price for {symbol}: {current_price:.5f}")
                 
                 # Calculate nominal value
-                nominal_value_per_unit_per_lot = symbol_info.trade_tick_value / symbol_info.trade_tick_size
+                nominal_value_per_unit_per_lot = symbol_info['trade_tick_value'] / symbol_info['trade_tick_size']
                 nominal_value = lot_size * nominal_value_per_unit_per_lot * current_price
                 
                 nominal_values[symbol] = nominal_value
@@ -559,23 +607,135 @@ class RiskManager:
             'correlations': correlations
         }
 
-def test_risk_manager():
-    """
-    Tests the risk manager.
-    """
 
-    # Set specific date
-    custom_date = None  # None for default date range
-    #custom_date = "2023-07-03"
+def scan_forex_opportunities(portfolio, mt5_client, symbol_actions: dict, date_input: Optional[str] = None):
+    """
+    Scans specific forex symbol-action pairs for potential trading opportunities.
+    Tests only the specified pairs with their given actions and prints only those that meet the risk threshold.
     
+    Args:
+        portfolio: RiskManager instance with current positions
+        mt5_client: MT5Client instance for data access
+        symbol_actions: Dictionary with symbol as key and action as value
+            Example: {"AUDUSD": "Buy", "EURAUD": "Sell", "GBPJPY": "Buy"}
+        date_input: Optional date string for backtesting
+        
+    Returns:
+        dict: Dictionary of opportunities with symbol, action, and risk increase
+    """
+    opportunities = {}
+    current_var = portfolio.run()
+    
+    if current_var == 0:
+        logger.warning("Current portfolio VaR is zero. Cannot calculate risk increase.")
+        return opportunities
+    
+    print(f"\n{'='*60}")
+    print(f"SCANNING FOREX OPPORTUNITIES")
+    print(f"{'='*60}")
+    print(f"Current Portfolio VaR: ${current_var:,.2f}")
+    print(f"Risk Threshold: {RISK_THRESHOLD}%")
+    print(f"Scanning {len(symbol_actions)} symbol-action pairs...")
+    print(f"{'='*60}")
+    
+    for symbol, action in symbol_actions.items():
+        # Skip symbols that are already in the portfolio
+        if symbol in portfolio.get_positions():
+            continue
+            
+        try:
+            # Create a temporary portfolio copy for testing
+            temp_portfolio = RiskManager(
+                mt5_client=mt5_client, 
+                input_date=date_input,
+                timeframe=portfolio.timeframe
+            )
+            
+            # Copy current positions to temp portfolio
+            for sym, lots in portfolio.get_positions().items():
+                temp_portfolio.add_position(sym, lots)
+            
+            # Add the test position and get calculated values
+            position_data = add_position_to_portfolio(symbol, action, temp_portfolio, mt5_client, date_input)
+            
+            if position_data is None:
+                continue
+            
+            test_lots = position_data['lots']
+            stop_loss = position_data['stop_loss']
+            
+            # Calculate new VaR
+            new_var = temp_portfolio.run()
+            
+            if new_var > 0:
+                # Calculate risk increase
+                risk_increase = ((new_var - current_var) / current_var) * 100
+                
+                # Only include if risk increase is below threshold
+                if risk_increase < RISK_THRESHOLD:
+                    opportunities[f"{symbol}_{action}"] = {
+                        'symbol': symbol,
+                        'action': action,
+                        'lots': test_lots,
+                        'stop_loss': stop_loss,
+                        'risk_increase': risk_increase,
+                        'new_var': new_var,
+                        'current_var': current_var
+                    }
+                    
+                    print(f"✅ {symbol} {action:4s} | Lots: {test_lots:6.2f} | SL: {stop_loss:6.1f} | Risk Increase: {risk_increase:6.1f}% | New VaR: ${new_var:,.0f}")
+            
+        except Exception as e:
+            logger.debug(f"Error testing {symbol} {action}: {str(e)}")
+            continue
+    
+    print(f"{'='*60}")
+    print(f"Found {len(opportunities)} opportunities below {RISK_THRESHOLD}% risk threshold")
+    print(f"{'='*60}")
+    
+    return opportunities
 
-    # Initialize the MT5 client
+
+def get_all_symbols_correlation(date_input: Optional[str] = None, timeframe: str = CORE_TIMEFRAME):
+    """
+    Calculates the correlation matrix for all symbols in ALL_SYMBOLS.
+    
+    Args:
+        mt5_client: MT5Client instance for data access
+        date_input: Optional date string for backtesting
+        timeframe: The timeframe to use for fetching data
+        
+    Returns:
+        pd.DataFrame: Correlation matrix
+    """
+    
+    logger.info(f"CALCULATING CORRELATION FOR ALL SYMBOLS")
+
     mt5_client = MT5Client()
 
-    # Initialize the risk manager
-    portfolio = RiskManager(mt5_client=mt5_client, input_date=custom_date)
 
-    def add_position_to_portfolio(symbol, action, date_input: str = None):
+    # Initialize a dummy RiskManager to use its data fetching and calculation methods
+    temp_portfolio = RiskManager(
+        mt5_client=mt5_client,
+        input_date=date_input,
+        timeframe=timeframe
+    )
+
+    # Get Data from MT5 for all symbols
+    data = temp_portfolio.get_data(ALL_SYMBOLS, exclude_current_bar=True)
+    
+    # Calculate returns for all symbols
+    data_with_returns = temp_portfolio.calculate_returns(data)
+    
+    # Calculate correlations between all symbols
+    correlations = temp_portfolio.calculate_correlations(data_with_returns)
+    
+    logger.info(f"Correlation matrix for {len(ALL_SYMBOLS)} symbols:")
+    
+    return correlations
+
+
+def add_position_to_portfolio(symbol, action, portfolio, mt5_client, date_input: Optional[str] = None):
         symbol_info = mt5_client.get_symbol_info(symbol)
         
         if date_input:
@@ -587,7 +747,7 @@ def test_risk_manager():
         
         if d1_df is None or d1_df.empty:
             logger.error(f"Failed to fetch data for {symbol}")
-            return
+            return None
             
         current_adr, current_daily_range_percentage, stop_loss = get_adr(d1_df, symbol_info)
         lots = portfolio.calculate_position_size(stop_loss, symbol_info)
@@ -596,21 +756,105 @@ def test_risk_manager():
         logger.info(f"Added {lots} lots of {symbol}")
         logger.info(f"Stop loss: {stop_loss}")
         logger.info(f"Current ADR: {current_adr}")
+        
+        return {
+            'lots': lots,
+            'stop_loss': stop_loss,
+            'current_adr': current_adr,
+            'current_daily_range_percentage': current_daily_range_percentage
+        }
 
-    add_position_to_portfolio('GBPUSD', "Sell", custom_date)
-    add_position_to_portfolio('USDJPY', "Sell", custom_date)
+def test_risk_manager():
+    """
+    Tests the risk manager.
+    """
 
+    # Set specific date
+    custom_date = None  # None for default date range
+    #custom_date = "2023-07-15"
+    
+    # Initialize the MT5 client
+    mt5_client = MT5Client()
+
+    # Initialize the risk manager
+    portfolio = RiskManager(mt5_client=mt5_client, input_date=custom_date)
+
+    # Add positions to the portfolio
+    add_position_to_portfolio('GBPAUD', "Sell",portfolio, mt5_client, custom_date)
+    add_position_to_portfolio('USDCAD', "Buy",portfolio, mt5_client, custom_date)
+    add_position_to_portfolio('EURGBP', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('EURNZD', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('AUDCAD', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('NZDUSD', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('AUDCHF', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('GBPNZD', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('NZDCHF', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('EURCHF', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('EURAUD', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('GBPAUD', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('EURGBP', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('CADJPY', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('EURUSD', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('NZDCAD', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('AUDNZD', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('EURCAD', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('GBPCAD', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('CADCHF', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('CHFJPY', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('USDJPY', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('AUDUSD', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('GBPJPY', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('GBPCHF', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('AUDJPY', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('EURJPY', "Buy",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('USDCAD', "Sell",portfolio, mt5_client, custom_date)
+
+
+    # Calculate the current value at risk
     curr_value_at_risk = portfolio.run()
 
-    add_position_to_portfolio('GBPJPY', "Buy", custom_date)
+    # Add a proposed position to the portfolio
+    #add_position_to_portfolio('USDJPY', "Sell",portfolio, mt5_client, custom_date)
+    #add_position_to_portfolio('GBPJPY', "Buy",portfolio, mt5_client, custom_date)
 
+    #add_position_to_portfolio('NZDJPY', "Sell",portfolio, mt5_client, custom_date)
+
+    # Calculate the proposed value at risk
     proposed_value_at_risk = portfolio.run()
 
+    # Calculate the increase in value at risk
     incr_var = ((proposed_value_at_risk - curr_value_at_risk) / curr_value_at_risk) * 100
 
+    # Print the results
     print(f"Current VaR: ${round(curr_value_at_risk):,.2f}" )
     print(f"Proposed VaR: ${round(proposed_value_at_risk):,.2f}")
+
+    # Print the decision to add the position
     print(f"Increase in VaR: {round(incr_var)}%")
+    print(f"Add Position: {True if incr_var < RISK_THRESHOLD else False}")
+
+    # Scan for forex opportunities
+    print("\n" + "="*60)
+    print("SCANNING FOR FOREX OPPORTUNITIES")
+    print("="*60)
+    
+    # Example: Use get_symbol_combinations to generate symbol-action pairs
+    currency_actions = {
+        "AUD": "Buy",
+        "CAD": "Buy", 
+        "JPY": "Sell",
+        "CHF": "Sell",
+        "USD": "Sell",
+    }
+    symbol_actions = get_symbol_combinations(currency_actions)
+    opportunities = scan_forex_opportunities(portfolio, mt5_client, symbol_actions, custom_date)
+    print(f"\nDetailed Opportunities (sorted by risk increase):")
+    # Sort opportunities by risk_increase (lowest to highest)
+    sorted_opportunities = sorted(opportunities.items(), key=lambda x: x[1]['risk_increase'])
+    for key, opportunity in sorted_opportunities:
+        print(f"  {opportunity['symbol']} {opportunity['action']}: {opportunity['lots']:.2f} lots, SL: {opportunity['stop_loss']:.1f} pips, {opportunity['risk_increase']:.1f}% {"Risk 🔴" if opportunity['risk_increase'] > 0 else "Risk 🟢"}")
+
+###########################################################################################################################################
 
     # # Demonstrate the stateless approach with hypothetical portfolio analysis
     # print("\n" + "="*50)
@@ -652,7 +896,66 @@ def test_risk_manager():
     # print(f"Portfolio Standard Deviation: {portfolio.portfolio_std_dev:.6f}")
     # print(f"Portfolio VaR ({CONFIDENCE_LEVEL:.0%} confidence, 1 day): ${portfolio.portfolio_var:,.2f}")
 
+
+def test_symbol_combinations():
+    """
+    Tests the get_symbol_combinations function.
+    """
+    print("\n" + "="*60)
+    print("TESTING SYMBOL COMBINATIONS")
+    print("="*60)
+    
+    # Test case 1: Example from user query
+    currency_actions = {
+        "AUD": "Buy",
+        "CAD": "Buy", 
+        "JPY": "Sell",
+        "CHF": "Sell",
+        "USD": "Sell",
+    }
+    
+    print(f"Input currency actions: {currency_actions}")
+    symbol_actions = get_symbol_combinations(currency_actions)
+    
+    print(f"\nGenerated {len(symbol_actions)} symbol combinations:")
+    for symbol, action in sorted(symbol_actions.items()):
+        print(f"  {symbol}: {action}")
+    
+    # Test case 2: Different scenario
+    print(f"\n" + "-"*40)
+    currency_actions2 = {
+        "EUR": "Buy",
+        "GBP": "Buy",
+        "USD": "Sell",
+        "JPY": "Sell",
+    }
+    
+    print(f"Input currency actions: {currency_actions2}")
+    symbol_actions2 = get_symbol_combinations(currency_actions2)
+    
+    print(f"\nGenerated {len(symbol_actions2)} symbol combinations:")
+    for symbol, action in sorted(symbol_actions2.items()):
+        print(f"  {symbol}: {action}")
+    
+    # Test case 3: Single currency (should return empty)
+    print(f"\n" + "-"*40)
+    currency_actions3 = {
+        "USD": "Buy",
+    }
+    
+    print(f"Input currency actions: {currency_actions3}")
+    symbol_actions3 = get_symbol_combinations(currency_actions3)
+    
+    print(f"\nGenerated {len(symbol_actions3)} symbol combinations:")
+    for symbol, action in sorted(symbol_actions3.items()):
+        print(f"  {symbol}: {action}")
+
+
 if __name__ == "__main__":
 
+    #test_symbol_combinations()
     test_risk_manager()
+    
+    # correlations = get_all_symbols_correlation("2025-07-10", "D1")
+    # print(correlations)
  

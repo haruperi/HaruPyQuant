@@ -132,6 +132,29 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 
 ## Cursor learned
 
+## Crash Recovery Lessons
+
+- Implement comprehensive crash recovery systems with multiple layers:
+  1. **Exception Handling**: Use context managers for automatic exception capture and logging
+  2. **State Persistence**: Save system state to JSON files for recovery across restarts
+  3. **Health Monitoring**: Monitor CPU, memory, and disk usage with configurable thresholds
+  4. **Recovery Callbacks**: Allow custom recovery procedures for different components
+  5. **Graceful Shutdown**: Implement proper cleanup procedures with signal handling
+  6. **Watchdog Service**: External process monitoring for automatic restart on crashes
+
+- Use psutil library for system resource monitoring and process management
+- Implement defensive programming with proper error handling and logging
+- Use dataclasses for structured state management with JSON serialization
+- Register cleanup callbacks with atexit for guaranteed execution
+- Use threading for background health monitoring without blocking main operations
+- Implement PID file management for watchdog service process tracking
+- Use subprocess.Popen for external process management with proper cleanup
+- Design recovery systems with configurable limits and delays to prevent rapid restart loops
+- Implement comprehensive logging with context information for debugging
+- Use signal handlers (SIGINT, SIGTERM) for graceful shutdown procedures
+- Create test scripts that simulate various failure scenarios for validation
+- Document crash recovery systems thoroughly with usage examples and best practices
+
 - For search results, ensure proper handling of different character encodings (UTF-8) for international queries
 - Add debug information to stderr while keeping the main output clean in stdout for better pipeline integration
 - When using seaborn styles in matplotlib, use 'seaborn-v0_8' instead of 'seaborn' as the style name due to recent seaborn version changes
@@ -159,6 +182,11 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
    - Properly handle initialization and cleanup in fixtures
    - Use proper error handling and status checking in connection methods
    - Mock both success and failure cases for comprehensive testing
+- For DataFrame operations with dynamic indexing:
+   - Always check bounds before using relative group IDs (e.g., group_id - 2)
+   - Verify DataFrame is not empty before accessing with .iloc[-1] or similar
+   - Add defensive checks like `if len(dataframe) > 0:` before data access
+   - Use proper bounds checking when iterating over grouped data to prevent IndexError
 
 
 ## MT5 Integration Lessons
@@ -172,6 +200,12 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
    - Handle data type differences: MT5 returns Volume as uint64, but SQLite expects int64
    - When using real MT5 data for testing, be aware of data availability limits (e.g., EURUSD history from 2015)
    - Handle DataFrame index properly when MT5 returns data with timestamp as index
+- When working with MT5 tick data in streaming:
+  - MT5 returns tick data as named tuples, not dictionaries
+  - Use `tick._asdict()` to convert to dictionary format
+  - Always validate required fields before processing
+  - Handle both named tuple and dictionary formats for compatibility
+  - Use type ignore comments for type checker issues with MT5 data structures
 
 2. Environment Variable Handling:
    - Strip comments from environment variable values before using them
@@ -406,7 +440,7 @@ Create a web application with React.js frontend and Flask backend API. The app w
 - [X] SmartMoneyConcepts Class Implementation
 
 ## Initial Setup & Environment
-- [X] Install Python 3.13.2 or latest stable version
+- [X] Install Python 3.13.5 or latest stable version
 - [X] Set up virtual environment (venv)
 - [X] Install MetaTrader 5 platform and create account
 - [X] Verify API access is enabled in MT5
@@ -423,8 +457,8 @@ Create a web application with React.js frontend and Flask backend API. The app w
 ## Core Module
 - [X] Set up logging service for system-wide use
 - [X] Implement main.py entry point script
-- [X] Develop constants.py for system-wide configuration
-- [] Implement crash recovery mechanisms
+- [X] Develop setup.py for system-wide configuration
+- [X] Implement crash recovery mechanisms
 - [] Create configuration management system
 - [] Set up comprehensive error handling framework
 - [] Create utility functions and helper methods
@@ -437,22 +471,16 @@ Create a web application with React.js frontend and Flask backend API. The app w
 - [X] Develop symbol management and filtering
 - [X] Create OHLC data retrieval and processing
 - [X] Implement tick data handling
-- [ ] Develop multi-instrument monitoring
-- [ ] Create price action analysis tools
-- [ ] Implement market volatility metrics calculation
-- [ ] Develop market condition identification system
-- [ ] Create significant price level detection
-- [ ] Implement correlation tracking between instruments
-- [ ] Create data normalization and cleaning utilities
-- [ ] Implement real-time data streaming handlers
-- [ ] Develop efficient data caching mechanisms
-- [ ] Create historical data retrieval functions
+- [X] Create data normalization and cleaning utilities
+- [X] Implement real-time data streaming handlers
+- [X] Develop efficient data caching mechanisms
 
 ## Trading Module
 - [X] Develop order placement functions
 - [X] Implement position tracking and management
 - [ ] Create trade history analysis tools
 - [X] Implement risk management and position sizing
+- [ ] Implement market volatility metrics calculation
 - [ ] Develop trade execution optimization
 - [ ] Create order submission retry logic
 - [X] Implement position modification capabilities
@@ -467,10 +495,19 @@ Create a web application with React.js frontend and Flask backend API. The app w
 ## Strategy Module
 - [X] Implement strategy base class
 - [X] Develop signal generator base function
-- [ ] Create entry/exit logic base class
+- [X] Create entry/exit logic base class (ExitStrategy)
 - [X] Implement standard technical indicators
 - [X] Develop custom indicator implementations
+- [ ] Create price action analysis tools
+- [ ] Develop market condition identification system
+- [ ] Develop multi-instrument monitoring
+- [ ] Create significant price level detection
+- [ ] Implement correlation tracking between instruments
 - [X] Implement SmartMoneyConcepts class with comprehensive SMC analysis
+- [X] Implement exit strategies:
+  - [X] Fixed pip exit strategy
+  - [X] ATR-based exit strategy
+  - [X] Trailing stop exit strategy
 - [ ] Implement specific strategies:
   - [X] Trend following strategy implementation
   - [ ] Mean reversion strategy implementation
@@ -478,12 +515,38 @@ Create a web application with React.js frontend and Flask backend API. The app w
   - [ ] Scalping strategy implementation
 - [ ] Create multi-timeframe signal confirmation
 - [ ] Implement pattern recognition algorithms
-- [ ] Develop trailing stop exit strategies
+- [X] Develop trailing stop exit strategies
 - [ ] Implement partial position exit logic
 - [ ] Create strategy parameter management
 - [ ] Develop strategy selection based on market conditions
 - [ ] Implement strategy results tracking
 - [ ] Create strategy performance metrics
+
+## Strategy Module Lessons
+
+- For strategy development:
+  - Use abstract base classes for consistent interface
+  - Implement proper parameter validation
+  - Use pandas DataFrames for signal generation
+  - Follow the signal convention: 1 for buy, -1 for sell, 0 for no signal
+  - Implement comprehensive logging for strategy execution
+  - Use type hints for better code maintainability
+  - Test strategies with historical data before live trading
+  - Implement proper error handling for edge cases
+  - Use modular design for easy strategy composition
+  - Document strategy logic and parameters clearly
+
+- For exit strategy design:
+  - Separate entry logic (BaseStrategy) from exit logic (ExitStrategy)
+  - Use composition over inheritance for exit strategies
+  - Implement multiple exit strategy types (fixed pip, ATR-based, trailing stops)
+  - Validate exit strategy parameters at initialization
+  - Support dynamic exit level calculation based on market conditions
+  - Implement trailing stop updates for ongoing position management
+  - Use symbol information for proper pip value calculations
+  - Log exit level calculations for debugging and analysis
+  - Support both stop loss and take profit levels
+  - Allow strategies to work without exit strategies (optional composition)
 
 ## Analysis Module
 - [ ] Create performance tracking system

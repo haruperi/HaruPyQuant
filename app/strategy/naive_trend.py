@@ -1,8 +1,10 @@
 import pandas as pd
 from typing import Dict, Any
-
+from app.util.logger import get_logger
 from .base import BaseStrategy
-from .indicators import ema_series
+from .indicators import calculate_ma
+
+logger = get_logger(__name__)
 
 class NaiveTrendStrategy(BaseStrategy):
     """
@@ -46,6 +48,7 @@ class NaiveTrendStrategy(BaseStrategy):
                           'signal' column: 1 for buy, -1 for sell, 0 for hold.
         """
         if 'Close' not in data.columns:
+            logger.error("Input DataFrame must contain a 'Close' column.")
             raise ValueError("Input DataFrame must contain a 'Close' column.")
 
         df = data.copy()
@@ -54,20 +57,26 @@ class NaiveTrendStrategy(BaseStrategy):
         slow_period = self.parameters['slow_ema_period']
         bias_period = self.parameters['bias_ema_period']
 
-        df['fast_ema'] = ema_series(df['Close'], fast_period)
-        df['slow_ema'] = ema_series(df['Close'], slow_period)
-        df['bias_ema'] = ema_series(df['Close'], bias_period)
+        df = calculate_ma(df, fast_period, "EMA", 'Close')
+        df = calculate_ma(df, slow_period, "EMA", 'Close')
+        df = calculate_ma(df, bias_period, "EMA", 'Close')
+        
+        # Get the column names that were created
+        fast_ema_col = f'ema_{fast_period}'
+        slow_ema_col = f'ema_{slow_period}'
+        bias_ema_col = f'ema_{bias_period}'
 
-        buy_crossover = (df['fast_ema'].shift(1) <= df['slow_ema'].shift(1)) & (df['fast_ema'] > df['slow_ema'])
-        buy_bias = (df['fast_ema'] > df['bias_ema']) & (df['slow_ema'] > df['bias_ema'])
+        buy_crossover = (df[fast_ema_col].shift(1) <= df[slow_ema_col].shift(1)) & (df[fast_ema_col] > df[slow_ema_col])
+        buy_bias = (df[fast_ema_col] > df[bias_ema_col]) & (df[slow_ema_col] > df[bias_ema_col])
         buy_condition = buy_crossover & buy_bias
 
-        sell_crossover = (df['fast_ema'].shift(1) >= df['slow_ema'].shift(1)) & (df['fast_ema'] < df['slow_ema'])
-        sell_bias = (df['fast_ema'] < df['bias_ema']) & (df['slow_ema'] < df['bias_ema'])
+        sell_crossover = (df[fast_ema_col].shift(1) >= df[slow_ema_col].shift(1)) & (df[fast_ema_col] < df[slow_ema_col])
+        sell_bias = (df[fast_ema_col] < df[bias_ema_col]) & (df[slow_ema_col] < df[bias_ema_col])
         sell_condition = sell_crossover & sell_bias
 
-        df['signal'] = 0
-        df.loc[buy_condition, 'signal'] = 1
-        df.loc[sell_condition, 'signal'] = -1
+        df['Signal'] = 0
+        df.loc[buy_condition, 'Signal'] = 1
+        df.loc[sell_condition, 'Signal'] = -1
+        logger.info(f"Completed getting signals for {self.__class__.__name__}. Number of buy signals: {buy_condition.sum()}, Number of sell signals: {sell_condition.sum()}")
 
         return df 

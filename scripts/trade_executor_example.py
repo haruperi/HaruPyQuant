@@ -170,7 +170,7 @@ class MT5Broker(Broker):
 
     def close_position(self, position_id: str, amount: float) -> bool:
         # MT5 requires creating an opposing order to close a position.
-        positions = mt5.positions_get(ticket=int(position_id))
+        positions = mt5.positions_get(ticket=int(position_id))  # type: ignore
         if not positions:
             return False
         
@@ -207,7 +207,7 @@ class MT5Broker(Broker):
         return self.client.order_send(request) is not None
 
     def modify_position(self, position_id: str, stop_loss: Optional[float] = None, take_profit: Optional[float] = None) -> bool:
-        positions = mt5.positions_get(ticket=int(position_id))
+        positions = mt5.positions_get(ticket=int(position_id))  # type: ignore
         if not positions:
             return False
         
@@ -222,7 +222,7 @@ class MT5Broker(Broker):
         return self.client.order_send(request) is not None
 
     def modify_order(self, order_id: str, price: Optional[float] = None, stop_loss: Optional[float] = None, take_profit: Optional[float] = None) -> bool:
-        orders = mt5.orders_get(ticket=int(order_id))
+        orders = mt5.orders_get(ticket=int(order_id))  # type: ignore
         if not orders:
             return False
             
@@ -267,7 +267,7 @@ def main():
         # 2. Setup components
         broker = MT5Broker(mt5_client)
         account_balance = broker.get_account_balance()
-        risk_manager = RiskManager(account_balance=account_balance, risk_percentage=1.0)
+        risk_manager = RiskManager(mt5_client=mt5_client, account_balance=account_balance, risk_percentage=1.0)
         trader = Trader(broker=broker, risk_manager=risk_manager)
         
         logger.info(f"Trader initialized. Account Balance: ${account_balance:.2f}")

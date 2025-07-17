@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import pandas as pd
+from app.strategy.exit_strategy import ExitStrategy
 
 class BaseStrategy(ABC):
     """
@@ -9,14 +10,16 @@ class BaseStrategy(ABC):
     All strategies should inherit from this class and implement the `calculate_signals` method.
     """
 
-    def __init__(self, parameters: Dict[str, Any]):
+    def __init__(self, parameters: Dict[str, Any], exit_strategy: Optional[ExitStrategy] = None):
         """
-        Initializes the strategy with a set of parameters.
+        Initializes the strategy with a set of parameters and optional exit strategy.
 
         Args:
             parameters (Dict[str, Any]): A dictionary of parameters for the strategy.
+            exit_strategy (Optional[ExitStrategy]): Optional exit strategy for SL/TP management.
         """
         self.parameters = parameters
+        self.exit_strategy = exit_strategy
 
     @abstractmethod
     def get_signals(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -36,4 +39,48 @@ class BaseStrategy(ABC):
                           - -1 for a sell signal
                           - 0 for no signal
         """
-        pass 
+        pass
+    
+    def get_exit_levels(
+        self, 
+        data: pd.DataFrame, 
+        entry_price: float, 
+        direction: str,
+        symbol_info: Dict[str, Any]
+    ) -> tuple[Optional[float], Optional[float]]:
+        """
+        Gets exit levels (SL/TP) from the exit strategy if available.
+        
+        Args:
+            data (pd.DataFrame): Market data
+            entry_price (float): Entry price
+            direction (str): 'BUY' or 'SELL'
+            symbol_info (Dict[str, Any]): Symbol information
+            
+        Returns:
+            tuple[Optional[float], Optional[float]]: (stop_loss, take_profit) levels
+        """
+        if self.exit_strategy is None:
+            return None, None
+        
+        return self.exit_strategy.calculate_exit_levels(data, entry_price, direction, symbol_info)
+    
+    def should_exit_position(
+        self, 
+        data: pd.DataFrame, 
+        position_info: Dict[str, Any]
+    ) -> bool:
+        """
+        Checks if a position should be exited based on the exit strategy.
+        
+        Args:
+            data (pd.DataFrame): Current market data
+            position_info (Dict[str, Any]): Current position information
+            
+        Returns:
+            bool: True if position should be exited
+        """
+        if self.exit_strategy is None:
+            return False
+        
+        return self.exit_strategy.should_exit(data, position_info) 

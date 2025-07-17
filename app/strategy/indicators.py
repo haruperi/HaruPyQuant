@@ -817,7 +817,6 @@ class CandlestickPatterns:
         
         return df
 
-
 class SmartMoneyConcepts:
     """
     Smart Money Concepts (SMC) analysis class.
@@ -1878,4 +1877,13 @@ class SmartMoneyConcepts:
         logger.info(f"Data saved to smc_analysis.csv")
         logger.info("Smart Money Concepts indicators calculation completed")
         return df
+
+#TODO: Write documentation for the indicators
+
+
+
+
+
+
+
 

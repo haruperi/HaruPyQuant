@@ -66,7 +66,7 @@ CONFIDENCE_LEVEL = 0.95       # Percent to be covered in statistics
 RISK_THRESHOLD = 50         # Risk threshold for accepting new positions (10%)
 
 # Data Settings
-DATA_DIR = PROJECT_ROOT / "data"
+DATA_DIR = PROJECT_ROOT / "app/data/files"
 TESTING_RESULTS_FILE = DATA_DIR / "testing_results.csv"
 from app.data.mt5_client import MT5Client
 

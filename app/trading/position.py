@@ -3,7 +3,10 @@ from enum import Enum
 from datetime import datetime, UTC
 from typing import Optional
 
+from app.util.logger import get_logger
 from app.trading.order import OrderDirection, Order, OrderStatus
+
+logger = get_logger(__name__)
 
 class PositionStatus(Enum):
     OPEN = "OPEN"
@@ -34,6 +37,7 @@ class Position:
 
     def __post_init__(self):
         if self.volume <= 0:
+            logger.error(f"Position volume must be positive. Volume: {self.volume}")
             raise ValueError("Position volume must be positive.")
 
     @classmethod
@@ -42,13 +46,23 @@ class Position:
         Creates a Position from a filled Order.
         """
         if order.status != OrderStatus.FILLED:
+            logger.error(f"Cannot create position from an unfilled order. Order status: {order.status}")
             raise ValueError("Cannot create position from an unfilled order.")
+        
+        if order.filled_price is None:
+            logger.error(f"Cannot create position from order with no filled price. Order: {order}")
+            raise ValueError("Cannot create position from order with no filled price.")
+        
+        if order.filled_at is None:
+            logger.error(f"Cannot create position from order with no filled timestamp. Order: {order}")
+            raise ValueError("Cannot create position from order with no filled timestamp.")
         
         if order.direction == OrderDirection.BUY:
             direction = PositionDirection.LONG
         else:
             direction = PositionDirection.SHORT
-            
+        
+        logger.info(f"Creating position from order: {order}")
         return cls(
             symbol=order.symbol,
             direction=direction,
@@ -81,8 +95,10 @@ class Position:
         Closes the position.
         """
         if self.status == PositionStatus.CLOSED:
+            logger.error(f"Position is already closed. Position: {self}")
             raise ValueError("Position is already closed.")
-            
+        
+        logger.info(f"Closing position: {self}")
         self.status = PositionStatus.CLOSED
         self.exit_price = exit_price
         self.exit_at = exit_at or datetime.now(UTC)
