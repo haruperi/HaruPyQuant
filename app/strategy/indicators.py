@@ -1,76 +1,79 @@
-import os
-import sys
-import logging
 import pandas as pd
 import numpy as np
-from typing import Optional, Dict, Any, Tuple
-from dataclasses import dataclass
-import MetaTrader5 as mt5
-from app.config.constants import ADR_PERIOD, STOP_ADR_RATIO
+from typing import Dict
+from app.config.setup import *
 
-# Add the parent directory to the path to import app modules
-app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, app_dir)
-
-# Also add the project root to the path
-project_root = os.path.dirname(app_dir)
-sys.path.insert(0, project_root)
-
-try:
-    from app.util.logger import get_logger
-    logger = get_logger(__name__)
-    print(f"Successfully imported logger from {app_dir}")
-except ImportError as e:
-    print(f"Warning: Could not import app logger: {e}")
-    print(f"Current sys.path: {sys.path}")
-    # Fallback logging if app logger is not available
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
+######################### Standard indicators #########################
 
-
-# Standard indicators
-def ema_series(data: pd.Series, period: int) -> pd.Series:
+def calculate_ma(df: pd.DataFrame, period: int = FAST_MA_PERIOD, ma_type: str = "EMA", column: str = 'Close') -> pd.DataFrame:
     """
-    Calculates the Exponential Moving Average (EMA).
+    Calculates Moving Average (MA) and adds it to the DataFrame.
 
     Args:
-        data (pd.Series): A pandas Series of prices (e.g., 'Close' prices).
-        period (int): The EMA period (span).
+        df (pd.DataFrame): A pandas DataFrame containing price data.
+        period (int): The MA period (window/span).
+        ma_type (str): The type of moving average. Options: "EMA" (default), "SMA", "WMA".
+        column (str): The column name to use for MA calculation. Default is 'Close'.
 
     Returns:
-        pd.Series: A pandas Series with the calculated EMA values.
+        pd.DataFrame: The DataFrame with an added MA column containing the calculated values.
     """
-    logger.info(f"Calculating EMA for {period} period")
-    return data.ewm(span=period, adjust=False).mean()
+    logger.info(f"Calculating {ma_type} for {period} period using {column} column")
+    
+    if column not in df.columns:
+        logger.error(f"Column '{column}' not found in DataFrame")
+        return df
+    
+    data = df[column]
+    
+    if ma_type.upper() == "EMA":
+        ma_values = data.ewm(span=period, adjust=False).mean()
+        column_name = f'ema_{period}'
+    elif ma_type.upper() == "SMA":
+        ma_values = data.rolling(window=period).mean()
+        column_name = f'sma_{period}'
+    elif ma_type.upper() == "WMA":
+        # Calculate Weighted Moving Average
+        weights = np.arange(1, period + 1)
+        ma_values = data.rolling(window=period).apply(
+            lambda x: np.dot(x, weights) / weights.sum(), raw=True
+        )
+        column_name = f'wma_{period}'
+    else:
+        logger.error(f"Unsupported MA type: {ma_type}. Supported types: EMA, SMA, WMA")
+        return df
+    
+    # Add MA column to the DataFrame
+    df_result = df.copy()
+    # Convert to pandas Series and shift the MA values to the previous value (align with previous bar)
+    ma_values = pd.Series(ma_values).shift(1)
+    df_result[column_name] = ma_values
+    logger.info(f"Added {column_name} column to the DataFrame. Last value: {ma_values.iloc[-1]}")
+    
+    return df_result
 
-def sma_series(data: pd.Series, period: int) -> pd.Series:
+def calculate_rsi(df: pd.DataFrame, period: int = RSI_PERIOD, column: str = 'Close') -> pd.DataFrame:
     """
-    Calculates the Simple Moving Average (SMA).
+    Calculates the Relative Strength Index (RSI) and adds it to the DataFrame.
 
     Args:
-        data (pd.Series): A pandas Series of prices (e.g., 'Close' prices).
-        period (int): The SMA period (window).
-
-    Returns:
-        pd.Series: A pandas Series with the calculated SMA values.
-    """
-    logger.info(f"Calculating SMA for {period} period")
-    return data.rolling(window=period).mean()
-
-def rsi_series(data: pd.Series, period: int = 14) -> pd.Series:
-    """
-    Calculates the Relative Strength Index (RSI).
-
-    Args:
-        data (pd.Series): A pandas Series of prices (e.g., 'Close' prices).
+        df (pd.DataFrame): A pandas DataFrame containing price data.
         period (int): The RSI period. Default is 14.
+        column (str): The column name to use for RSI calculation. Default is 'Close'.
 
     Returns:
-        pd.Series: A pandas Series with the calculated RSI values.
+        pd.DataFrame: The DataFrame with an added 'rsi' column containing the calculated RSI values.
     """
-    logger.info(f"Calculating RSI for {period} period")
+    logger.info(f"Calculating RSI for {period} period using {column} column")
+    
+    if column not in df.columns:
+        logger.error(f"Column '{column}' not found in DataFrame")
+        return df
+    
+    data = df[column]
     delta = data.diff()
 
     gain = (delta.where(delta > 0, 0)).fillna(0)
@@ -82,25 +85,103 @@ def rsi_series(data: pd.Series, period: int = 14) -> pd.Series:
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
     
-    return rsi 
+    # Add RSI column to the DataFrame
+    df_result = df.copy()
+    rsi_values = pd.Series(rsi).shift(1)
+    df_result['rsi'] = rsi_values
+    logger.info(f"Added 'rsi' column to the DataFrame. Last value: {rsi_values.iloc[-1]}")
+    
+    return df_result
 
-
-# Custom indicators
-def adr_series(high: pd.Series, low: pd.Series, n: int, symbol_info: dict) -> pd.Series:
+def calculate_williams_percent(df: pd.DataFrame, period: int = WILLIAMS_R_PERIOD) -> pd.DataFrame:
     """
-    Returns `n`-period average daily range of array `arr`.
+    Calculates the Williams %R indicator and adds it to the DataFrame.
+
+    Williams %R is a momentum indicator that measures overbought/oversold levels.
+    It ranges from 0 to -100, where:
+    - 0 to -20: Overbought (potential sell signal)
+    - -80 to -100: Oversold (potential buy signal)
+
+    Args:
+        df (pd.DataFrame): A pandas DataFrame containing OHLC data.
+        period (int): The lookback period for calculating the indicator. Default is 14.
+
+    Returns:
+        pd.DataFrame: The DataFrame with an added 'williams_r' column containing the calculated Williams %R values.
     """
-    logger.info(f"Calculating ADR for {n} period")
-    # Calculate daily ranges
-    daily_range = (high - low) / symbol_info.trade_tick_size / 10
+    logger.info(f"Calculating Williams %R for {period} period")
+    
+    # Check if required columns exist
+    required_columns = ['High', 'Low', 'Close']
+    for col in required_columns:
+        if col not in df.columns:
+            logger.error(f"Required column '{col}' not found in DataFrame")
+            return df
+    
+    # Calculate Williams %R
+    # Formula: %R = (Highest High - Close) / (Highest High - Lowest Low) * -100
+    highest_high = df['High'].rolling(window=period).max()
+    lowest_low = df['Low'].rolling(window=period).min()
+    
+    # Calculate Williams %R
+    williams_r = ((highest_high - df['Close']) / (highest_high - lowest_low)) * -100
+    
+    # Add Williams %R column to the DataFrame
+    df_result = df.copy()
+    williams_r_values = pd.Series(williams_r).shift(1)
+    df_result['williams_r'] = williams_r_values
+    logger.info(f"Added 'williams_r' column to the DataFrame. Last value: {williams_r_values.iloc[-1]}")
+    
+    return df_result
 
-    # Calculate ADR
-    adr = daily_range.rolling(window=n).mean()
+def calculate_atr(df: pd.DataFrame, period: int = ATR_PERIOD) -> pd.DataFrame:
+    """
+    Calculates the Average True Range (ATR) indicator and adds it to the DataFrame.
 
-    # Shift the ADR by one period to make today's ADR based on the previous value
-    adr = adr.shift(1)
+    ATR is a volatility indicator that measures market volatility by decomposing
+    the entire range of an asset price for that period. It helps in setting
+    stop-loss levels and determining position sizing.
 
-    return adr
+    Args:
+        df (pd.DataFrame): A pandas DataFrame containing OHLC data.
+        period (int): The period for calculating the ATR. Default is 14.
+
+    Returns:
+        pd.DataFrame: The DataFrame with an added 'atr' column containing the calculated ATR values.
+    """
+    logger.info(f"Calculating ATR for {period} period")
+    
+    # Check if required columns exist
+    required_columns = ['High', 'Low', 'Close']
+    for col in required_columns:
+        if col not in df.columns:
+            logger.error(f"Required column '{col}' not found in DataFrame")
+            return df
+    
+    # Calculate True Range (TR)
+    high = df['High']
+    low = df['Low']
+    close = df['Close']
+    
+    # Compute True Range (TR)
+    previous_close = close.shift(1)
+    tr1 = high - low
+    tr2 = (high - previous_close).abs()
+    tr3 = (low - previous_close).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    
+    # Compute ATR using Simple Moving Average (SMA) - this matches MT5
+    atr = tr.rolling(window=period, min_periods=1).mean()
+    
+    # Add ATR column to the DataFrame
+    df_result = df.copy()
+    atr_values = pd.Series(atr).shift(1)
+    df_result['atr'] = atr_values
+    logger.info(f"Added 'atr' column to the DataFrame. Last value: {atr_values.iloc[-1]}")
+    
+    return df_result
+
+######################### Custom indicators #########################
 
 def get_adr(df, symbol_info, period=ADR_PERIOD):
     """
@@ -126,19 +207,616 @@ def get_adr(df, symbol_info, period=ADR_PERIOD):
     # Stop Loss Level
     df['SL'] = round(df['ADR'] / STOP_ADR_RATIO)
 
-    # Calculate the current daily range percentage
-    current_daily_range = df['daily_range'].iloc[-1]
-    current_adr = round(df['ADR'].iloc[-1])
-    current_sl = df['SL'].iloc[-1]
-    current_daily_range_percentage = round((current_daily_range / current_adr) * 100)
+    logger.info(f"Added 'daily_range', 'ADR', 'SL' columns to the DataFrame. Last value: {df['daily_range'].iloc[-1]}, {df['ADR'].iloc[-1]}, {df['SL'].iloc[-1]}")
 
-    #return df
-    return current_adr, current_daily_range_percentage, current_sl
+    return df
 
+def calculate_currency_index(base_currency: str, ohlc_data: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """
+    Calculates a synthetic currency index OHLC using the geometric mean of its constituent pairs.
 
+    Args:
+        base_currency (str): The currency for which to calculate the index (e.g., 'USD', 'EUR').
+        ohlc_data (dict[str, pd.DataFrame]): A dictionary where keys are currency pair names
+                                             (e.g., 'EURUSD') and values are pandas DataFrames.
+                                             Each DataFrame must have 'Open', 'High', 'Low', 'Close'
+                                             columns and a DatetimeIndex.
 
+    Returns:
+        pd.DataFrame: A DataFrame with the calculated OHLC for the currency index.
+                      Returns an empty DataFrame if the base currency is not supported or
+                      if required pair data is missing.
+    """
+    # --- CONFIGURATION ---
+    # Defines the currency pairs for each index.
+    # 'True' means the pair's price should be inverted (1/price).
+    logger.info(f"Calculating currency index for {base_currency}")
+    INDEX_CONFIG = {
+        'USD': {'EURUSD': True, 'GBPUSD': True, 'AUDUSD': True, 'NZDUSD': True, 'USDCAD': False, 'USDCHF': False, 'USDJPY': False},
+        'EUR': {'EURUSD': False, 'EURGBP': False, 'EURAUD': False, 'EURNZD': False, 'EURCAD': False, 'EURCHF': False, 'EURJPY': False},
+        'GBP': {'GBPUSD': False, 'GBPAUD': False, 'GBPNZD': False, 'GBPCAD': False, 'GBPCHF': False, 'GBPJPY': False, 'EURGBP': True},
+        'JPY': {'USDJPY': True, 'EURJPY': True, 'GBPJPY': True, 'AUDJPY': True, 'NZDJPY': True, 'CADJPY': True, 'CHFJPY': True},
+        'AUD': {'AUDUSD': False, 'AUDNZD': False, 'AUDCAD': False, 'AUDCHF': False, 'AUDJPY': False, 'EURAUD': True, 'GBPAUD': True},
+        'NZD': {'NZDUSD': False, 'NZDCAD': False, 'NZDCHF': False, 'NZDJPY': False, 'EURNZD': True, 'GBPNZD': True, 'AUDNZD': True},
+        'CAD': {'CADCHF': False, 'CADJPY': False, 'USDCAD': True, 'EURCAD': True, 'GBPCAD': True, 'AUDCAD': True, 'NZDCAD': True},
+        'CHF': {'CHFJPY': False, 'USDCHF': True, 'EURCHF': True, 'GBPCHF': True, 'AUDCHF': True, 'NZDCHF': True, 'CADCHF': True}
+    }
 
-############### Smart Money Concepts ###############
+    if base_currency not in INDEX_CONFIG:
+        logger.error(f"Error: Currency '{base_currency}' is not supported.")
+        return pd.DataFrame()
+
+    pairs_config = INDEX_CONFIG[base_currency]
+    
+    # --- Data Normalization ---
+    # Store the normalized OHLC Series for all required pairs
+    normalized_ohlc_series = {
+        'Open': [], 'High': [], 'Low': [], 'Close': []
+    }
+
+    for pair, invert in pairs_config.items():
+        if pair not in ohlc_data:
+            logger.error(f"Error: Missing OHLC data for required pair '{pair}'.")
+            return pd.DataFrame()
+
+        df_pair = ohlc_data[pair].copy()
+
+        # Ensure required columns exist
+        required_cols = {'Open', 'High', 'Low', 'Close'}
+        if not required_cols.issubset(df_pair.columns):
+            logger.error(f"Error: DataFrame for '{pair}' is missing one or more required columns: Open, High, Low, Close.")
+            return pd.DataFrame()
+
+        if invert:
+            # When inverting, the new high is 1/low and the new low is 1/high.
+            # We create temporary columns to avoid modifying the original DataFrame in place.
+            df_norm_high = 1 / df_pair['Low']
+            df_norm_low = 1 / df_pair['High']
+            
+            normalized_ohlc_series['Open'].append(1 / df_pair['Open'])
+            normalized_ohlc_series['High'].append(df_norm_high)
+            normalized_ohlc_series['Low'].append(df_norm_low)
+            normalized_ohlc_series['Close'].append(1 / df_pair['Close'])
+        else:
+            normalized_ohlc_series['Open'].append(df_pair['Open'])
+            normalized_ohlc_series['High'].append(df_pair['High'])
+            normalized_ohlc_series['Low'].append(df_pair['Low'])
+            normalized_ohlc_series['Close'].append(df_pair['Close'])
+
+    # --- Calculation ---
+    # Create a new DataFrame to hold the index results
+    index_df = pd.DataFrame(index=ohlc_data[list(pairs_config.keys())[0]].index)
+
+    # Calculate the geometric mean for each OHLC component
+    for ohlc_type in ['Open', 'High', 'Low', 'Close']:
+        # Concatenate all series of the same type (e.g., all 'Open' series)
+        ohlc_matrix = pd.concat(normalized_ohlc_series[ohlc_type], axis=1)
+        # Calculate the geometric mean row-wise
+        # Formula: (x1 * x2 * ... * xn)^(1/n)
+        # We use numpy's prod for product and power for the nth root.
+        index_df[ohlc_type] = np.power(ohlc_matrix.prod(axis=1), 1.0/ohlc_matrix.shape[1])
+
+    logger.info(f"Completed currency index calculation for {base_currency}")
+
+    return index_df
+
+def calculate_strength_meter_latest_price(ohlc_data: Dict[str, pd.DataFrame]) -> pd.Series:
+    """
+    Calculates a currency strength meter based on the most recent OHLC data.
+
+    The function first calculates a synthetic index for each of the 8 major
+    currencies using the geometric mean of its constituent pairs. It then
+    measures strength by calculating the percentage change from the Open to
+    the Close of the calculated index for the latest available period.
+
+    Args:
+        ohlc_data (Dict[str, pd.DataFrame]):
+            A dictionary where keys are currency pair names (e.g., 'EURUSD')
+            and values are pandas DataFrames. Each DataFrame must have 'Open',
+            'High', 'Low', 'Close' columns and a DatetimeIndex. The calculation
+            will be based on the last row of each DataFrame.
+
+    Returns:
+        pd.Series: A pandas Series with currency codes as the index and their
+                   calculated strength (% change) as values, sorted from
+                   strongest to weakest. Returns an empty Series if data is
+                   insufficient.
+    """
+    logger.info(f"Calculating currency strength meter")
+    # --- CONFIGURATION ---
+    # Defines the currency pairs and inversion logic for each index.
+    CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD', 'CHF']
+    INDEX_CONFIG = {
+        'USD': {'EURUSD': True, 'GBPUSD': True, 'AUDUSD': True, 'NZDUSD': True, 'USDCAD': False, 'USDCHF': False, 'USDJPY': False},
+        'EUR': {'EURUSD': False, 'EURGBP': False, 'EURAUD': False, 'EURNZD': False, 'EURCAD': False, 'EURCHF': False, 'EURJPY': False},
+        'GBP': {'GBPUSD': False, 'GBPAUD': False, 'GBPNZD': False, 'GBPCAD': False, 'GBPCHF': False, 'GBPJPY': False, 'EURGBP': True},
+        'JPY': {'USDJPY': True, 'EURJPY': True, 'GBPJPY': True, 'AUDJPY': True, 'NZDJPY': True, 'CADJPY': True, 'CHFJPY': True},
+        'AUD': {'AUDUSD': False, 'AUDNZD': False, 'AUDCAD': False, 'AUDCHF': False, 'AUDJPY': False, 'EURAUD': True, 'GBPAUD': True},
+        'NZD': {'NZDUSD': False, 'NZDCAD': False, 'NZDCHF': False, 'NZDJPY': False, 'EURNZD': True, 'GBPNZD': True, 'AUDNZD': True},
+        'CAD': {'CADCHF': False, 'CADJPY': False, 'USDCAD': True, 'EURCAD': True, 'GBPCAD': True, 'AUDCAD': True, 'NZDCAD': True},
+        'CHF': {'CHFJPY': False, 'USDCHF': True, 'EURCHF': True, 'GBPCHF': True, 'AUDCHF': True, 'NZDCHF': True, 'CADCHF': True}
+    }
+
+    strengths = {}
+
+    for currency in CURRENCIES:
+        pairs_config = INDEX_CONFIG[currency]
+        
+        # --- Data Normalization for the latest period ---
+        normalized_open = []
+        normalized_close = []
+
+        for pair, invert in pairs_config.items():
+            if pair not in ohlc_data or ohlc_data[pair].empty:
+                logger.warning(f"Warning: Missing or empty data for required pair '{pair}' for {currency} index. Skipping.")
+                # Return empty series if any data is missing to ensure accuracy
+                return pd.Series(dtype=np.float64)
+
+            # Get the latest row of data
+            latest_data = ohlc_data[pair].iloc[-2]
+            logger.info(f"Latest data for {pair}: {latest_data}")
+            o, c = latest_data['Open'], latest_data['Close']
+
+            if invert:
+                normalized_open.append(1 / o)
+                normalized_close.append(1 / c)
+            else:
+                normalized_open.append(o)
+                normalized_close.append(c)
+        
+        # --- Index and Strength Calculation ---
+        # Geometric mean for index open and close
+        index_open = np.power(np.prod(normalized_open), 1.0/len(normalized_open))
+        index_close = np.power(np.prod(normalized_close), 1.0/len(normalized_close))
+
+        # Calculate strength as percentage change
+        strength = ((index_close - index_open) / index_open) * 100
+        strengths[currency] = strength
+
+    # Convert to a pandas Series and sort
+    strength_series = pd.Series(strengths)
+    logger.info(f"Completed currency strength meter calculation. Last value: {strength_series.iloc[-1]}")
+    return strength_series.sort_values(ascending=False)
+
+def calculate_strength_meter_average_price(ohlc_data: Dict[str, pd.DataFrame], lookback_period: int = 12) -> pd.Series:
+    """
+    Calculates currency strength based on the average performance over a lookback period.
+
+    This improved function calculates the synthetic index for each currency, then
+    computes the average percentage change (Open to Close) over the specified
+    number of recent periods (candles) to provide a more stable strength value.
+
+    Args:
+        ohlc_data (Dict[str, pd.DataFrame]):
+            A dictionary of DataFrames for each currency pair. Each DataFrame
+            must contain at least `lookback_period` rows of data.
+        lookback_period (int, optional):
+            The number of recent periods to average for the strength calculation.
+            Defaults to 14.
+
+    Returns:
+        pd.Series: A pandas Series of currency strength values, sorted from
+                   strongest to weakest.
+    """
+    logger.info(f"Calculating currency strength meter")
+    CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD', 'CHF']
+    strengths = {}
+
+    for currency in CURRENCIES:
+        # --- Step 1: Slice the data for the lookback period ---
+        # Create a new dictionary containing only the last `lookback_period` rows for each pair
+        sliced_ohlc_data = {}
+        for pair, df in ohlc_data.items():
+            if len(df) < lookback_period:
+                logger.warning(f"Warning: Data for {pair} has only {len(df)} rows, less than lookback period {lookback_period}. Skipping {currency}.")
+                # Set strength to NaN and continue to next currency
+                strengths[currency] = np.nan
+                break
+            sliced_ohlc_data[pair] = df.tail(lookback_period)
+        
+        # If a break occurred, continue to the next currency in the main loop
+        if strengths.get(currency) is np.nan:
+            continue
+
+        # --- Step 2: Calculate the index for the sliced period ---
+        index_df = calculate_currency_index(currency, sliced_ohlc_data)
+        if index_df.empty:
+            logger.error(f"Error: Index DataFrame is empty for {currency}. Skipping.")
+            strengths[currency] = np.nan
+            continue
+
+        # --- Step 3: Calculate strength as the average performance ---
+        # Calculate the percentage change for each period in the index
+        period_performance = (index_df['Close'] - index_df['Open']) / index_df['Open'] * 100
+        
+        # The final strength is the average (mean) of these period performances
+        average_strength = period_performance.mean()
+        strengths[currency] = average_strength
+
+    # Convert to a pandas Series, drop any currencies that failed, and sort
+    strength_series = pd.Series(strengths).dropna()
+    logger.info(f"Completed currency strength meter calculation. Last value: {strength_series.iloc[-1]}")
+    return strength_series.sort_values(ascending=False)
+
+def calculate_currency_strength_rsi(symbols=FOREX_SYMBOLS, timeframe="M5", strength_lookback=12, strength_rsi=12):
+    """
+    Calculate currency strength based on RSI values for a set of currency pairs.
+
+    The function fetches historical data for each currency pair, computes the RSI for
+    a specified lookback period, and aggregates these values to calculate the relative
+    strength of major currencies (USD, EUR, GBP, CHF, JPY, AUD, CAD, NZD).
+
+    Parameters:
+        symbols (list of str): List of currency pairs (e.g., ['EURUSD', 'GBPUSD']).
+        timeframe (str): Timeframe for fetching data (e.g., 'H1', 'D1').
+        strength_lookback (int): Number of past periods to include in calculating RSI.
+        strength_rsi (int): RSI period for calculation.
+        strength_loc (int): Position index to fetch the latest strength readings.
+
+    Returns:
+        pd.Series: A series of currency strength values (sorted in descending order).
+    """
+    logger.info(f"Calculating currency strength")
+    # Initialize MT5 client
+    try:
+        mt5_client = MT5Client()
+    except Exception as e:
+        logger.error(f"Could not initialize MT5Client: {e}")
+        return pd.DataFrame()
+    
+    data = pd.DataFrame()
+    for symbol in symbols:
+        df = mt5_client.fetch_data(symbol, timeframe, start_pos=0, end_pos=strength_lookback)
+        #df = fetch_data(symbol, timeframe, start_date="2025-02-01", end_date="2025-02-19")
+        #df = fetch_data(symbol, timeframe, start_pos=140, end_pos=265)
+        if df is not None and not df.empty:
+            df = calculate_rsi(df, strength_rsi, "Close")
+            data[symbol] = df['rsi']
+        else:
+            logger.warning(f"No data fetched for {symbol}")
+
+    strength = pd.DataFrame()
+    strength["USD"] = 1 / 7 * (
+                (100 - data.EURUSD) + (100 - data.GBPUSD) + data.USDCAD + data.USDJPY + (100 - data.NZDUSD) + (
+                    100 - data.AUDUSD) + data.USDCHF)
+    strength["EUR"] = 1 / 7 * (data.EURUSD + data.EURGBP + data.EURAUD + data.EURNZD + data.EURCHF + data.EURCAD)
+    strength["GBP"] = 1 / 7 * (
+                data.GBPUSD + data.GBPJPY + data.GBPAUD + data.GBPNZD + data.GBPCAD + data.GBPCHF + (100 - data.EURGBP))
+    strength["CHF"] = 1 / 7 * ((100 - data.EURCHF) + (100 - data.GBPCHF) + (100 - data.NZDCHF) + (100 - data.AUDCHF) + (
+                100 - data.CADCHF) + data.CHFJPY + (100 - data.USDCHF))
+    strength["JPY"] = 1 / 7 * ((100 - data.EURJPY) + (100 - data.GBPJPY) + (100 - data.USDJPY) + (100 - data.CHFJPY) + (
+                100 - data.CADJPY) + (100 - data.NZDJPY) + (100 - data.AUDJPY))
+    strength["AUD"] = 1 / 7 * ((100 - data.EURAUD) + (100 - data.GBPAUD) + (
+                100 - data.AUDJPY) + data.AUDNZD + data.AUDCAD + data.AUDCHF + data.AUDUSD)
+    strength["CAD"] = 1 / 7 * (
+                (100 - data.EURCAD) + (100 - data.GBPCAD) + (100 - data.USDCAD) + data.CADJPY + (100 - data.AUDCAD) + (
+                    100 - data.NZDCAD) + data.CADCHF)
+    strength["NZD"] = 1 / 7 * (
+                (100 - data.EURNZD) + (100 - data.GBPNZD) + data.NZDJPY + data.NZDUSD + data.NZDCAD + data.NZDCHF + (
+                    100 - data.AUDNZD))
+
+    strength_df = strength.shift(1)  # Shift all columns by one row
+
+    # strength_df = strength_df.diff().iloc[-1].round(2).sort_values(ascending=False)  # Differance between current and previous
+    #strength_df = strength.iloc[-1].apply(lambda x: x - 50).round(2).sort_values(ascending=False) # Differance from neutral 50
+
+    # strength_df = strength_df.diff().round(2) # Differance between current and previous dataframe
+    strength_df = strength_df.map(lambda x: round(x - 50, 2))  # Differance from neutral 50 dataframe
+
+    logger.info(f"Completed currency strength calculation. Last value: {strength_df.iloc[-1]}")
+
+    return strength_df
+
+def calculate_ltf_close_above_below_hft(ltf_df, htf_df):
+    """
+    This function aligns lower time frame (LTF) data with higher time frame (HTF) data
+    to analyze the close price movement above or below previous HTF extremes.
+
+    Parameters:
+        ltf_df (pd.DataFrame): DataFrame containing lower time frame data.
+        htf_df (pd.DataFrame): DataFrame containing higher time frame data.
+
+    Returns:
+        pd.DataFrame: Updated DataFrame with additional columns including swingline
+                      and significant close alerts.
+    """
+    logger.info(f"Calculating LTF close above or below HTF extremes")
+
+    # Shift htf_df close to ensure we only compare to fully closed m5 bars
+    htf_df['prev_High_HTF'] = htf_df['High'].shift(1)
+    htf_df['prev_Low_HTF'] = htf_df['Low'].shift(1)
+
+    # Merge the two DataFrames on their datetime index
+    aligned_df = pd.merge(
+        ltf_df, htf_df,
+        how='outer',  # Use 'outer' to keep all timestamps from both DataFrames
+        left_index=True,
+        right_index=True,
+        suffixes=('', '_htf')  # Add suffixes to differentiate columns from m1_df and m5_df
+    )
+
+    # Forward-fill missing values using `ffill` directly
+    aligned_df.ffill(inplace=True)  # Forward-fill missing values in place
+
+    aligned_df = aligned_df[["Open", "High", "prev_High_HTF", "Low", "prev_Low_HTF", "Close"]]
+
+    df = aligned_df.copy()
+
+    # Calculate the significant close and then the swingline direction
+    df['swingline'] = np.select(
+        [
+            (df['Close'] > df['prev_High_HTF']) & (df['Close'] > df['Open']),  # Condition for 1
+            (df['Close'] < df['prev_Low_HTF']) & (df['Close'] < df['Open'])  # Condition for -1
+        ],
+        [1, -1],  # Values to assign (1 for the first condition, -1 for the second condition)
+        default=np.nan  # Set default to NaN to allow forward filling later
+    )
+
+    df['swingline'] = pd.Series(df['swingline']).ffill()  # Fill NaN values with the previous value (propagate values where conditions are not met)
+
+    return df
+######################## Bundled Indicators in Classes ###############
+
+class CandlestickPatterns:
+    """
+    Candlestick pattern recognition class.
+    
+    This class provides methods to identify various candlestick patterns
+    in financial market data, including doji, engulfing patterns, and more.
+    """
+
+    def __init__(self):
+        """
+        Initialize the CandlestickPatterns analyzer.
+        """
+        logger.info("CandlestickPatterns initialized")
+
+    def doji(self, df: pd.DataFrame, tolerance: float = 0.1) -> pd.DataFrame:
+        """
+        Identifies doji candlestick patterns.
+        
+        A doji is a candlestick where the open and close prices are very close to each other,
+        indicating indecision in the market.
+        
+        Args:
+            df (pd.DataFrame): DataFrame with OHLC data
+            tolerance (float): Percentage tolerance for doji identification (default 0.1%)
+            
+        Returns:
+            pd.DataFrame: DataFrame with added 'doji' column (1 for doji, 0 otherwise)
+        """
+        logger.info("Identifying doji patterns")
+        
+        df = df.copy()
+        df['doji'] = 0
+        
+        if len(df) < 1:
+            logger.warning("DataFrame too short for doji calculation")
+            return df
+        
+        # Check if required columns exist
+        required_columns = ['Open', 'High', 'Low', 'Close']
+        for col in required_columns:
+            if col not in df.columns:
+                logger.error(f"Required column '{col}' not found in DataFrame")
+                return df
+        
+        # Calculate body size and total range
+        body_size = abs(df['Close'] - df['Open'])
+        total_range = df['High'] - df['Low']
+        
+        # Calculate tolerance threshold (percentage of total range)
+        tolerance_threshold = total_range * (tolerance / 100)
+        
+        # Identify doji patterns
+        # Doji: body size is less than tolerance threshold
+        doji_mask = body_size <= tolerance_threshold
+        
+        df.loc[doji_mask, 'doji'] = 1
+        
+        doji_count = doji_mask.sum()
+        logger.info(f"Doji pattern identification completed. Found {doji_count} doji patterns")
+        
+        return df
+
+    def engulfing(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Identifies bullish and bearish engulfing patterns.
+        
+        Bullish engulfing: current candle completely engulfs the previous bearish candle
+        Bearish engulfing: current candle completely engulfs the previous bullish candle
+        
+        Args:
+            df (pd.DataFrame): DataFrame with OHLC data
+            
+        Returns:
+            pd.DataFrame: DataFrame with added 'engulfing' column (1 for bullish, -1 for bearish, 0 otherwise)
+        """
+        logger.info("Identifying engulfing patterns")
+        
+        df = df.copy()
+        df['engulfing'] = 0
+        
+        if len(df) < 2:
+            logger.warning("DataFrame too short for engulfing calculation")
+            return df
+        
+        # Check if required columns exist
+        required_columns = ['Open', 'High', 'Low', 'Close']
+        for col in required_columns:
+            if col not in df.columns:
+                logger.error(f"Required column '{col}' not found in DataFrame")
+                return df
+        
+        # Calculate body sizes and determine candle types
+        current_body_size = df['Close'] - df['Open']
+        previous_body_size = df['Close'].shift(1) - df['Open'].shift(1)
+        
+        # Determine if candles are bullish or bearish
+        current_bullish = current_body_size > 0
+        previous_bullish = previous_body_size > 0
+        
+        # Calculate engulfing conditions
+        # Bullish engulfing: current bullish candle engulfs previous bearish candle
+        bullish_engulfing = (
+            current_bullish &  # Current candle is bullish
+            ~previous_bullish &  # Previous candle is bearish
+            (df['Open'] <= df['Close'].shift(1)) &  # Current open <= previous close
+            (df['Close'] >= df['Open'].shift(1))  # Current close >= previous open
+        )
+        
+        # Bearish engulfing: current bearish candle engulfs previous bullish candle
+        bearish_engulfing = (
+            ~current_bullish &  # Current candle is bearish
+            previous_bullish &  # Previous candle is bullish
+            (df['Open'] >= df['Close'].shift(1)) &  # Current open >= previous close
+            (df['Close'] <= df['Open'].shift(1))  # Current close <= previous open
+        )
+        
+        # Set engulfing values
+        df.loc[bullish_engulfing, 'engulfing'] = 1
+        df.loc[bearish_engulfing, 'engulfing'] = -1
+        
+        bullish_count = bullish_engulfing.sum()
+        bearish_count = bearish_engulfing.sum()
+        total_count = bullish_count + bearish_count
+        
+        logger.info(f"Engulfing pattern identification completed. Found {total_count} engulfing patterns ({bullish_count} bullish, {bearish_count} bearish)")
+        
+        return df
+
+    def pinbar(self, df: pd.DataFrame, body_ratio: float = 0.3, shadow_ratio: float = 0.6) -> pd.DataFrame:
+        """
+        Identifies pinbar (hammer/hanging man) candlestick patterns.
+        
+        A pinbar has a small body and a long shadow (wick) in one direction,
+        indicating potential reversal signals.
+        
+        Args:
+            df (pd.DataFrame): DataFrame with OHLC data
+            body_ratio (float): Maximum ratio of body to total range for pinbar (default 0.3)
+            shadow_ratio (float): Minimum ratio of shadow to total range for pinbar (default 0.6)
+            
+        Returns:
+            pd.DataFrame: DataFrame with added 'pinbar' column (1 for bullish pinbar, -1 for bearish pinbar, 0 otherwise)
+        """
+        logger.info("Identifying pinbar patterns")
+        
+        df = df.copy()
+        df['pinbar'] = 0
+        
+        if len(df) < 1:
+            logger.warning("DataFrame too short for pinbar calculation")
+            return df
+        
+        # Check if required columns exist
+        required_columns = ['Open', 'High', 'Low', 'Close']
+        for col in required_columns:
+            if col not in df.columns:
+                logger.error(f"Required column '{col}' not found in DataFrame")
+                return df
+        
+        # Calculate body size and total range
+        body_size = abs(df['Close'] - df['Open'])
+        total_range = df['High'] - df['Low']
+        
+        # Calculate upper and lower shadows
+        upper_shadow = df['High'] - df[['Open', 'Close']].max(axis=1)
+        lower_shadow = df[['Open', 'Close']].min(axis=1) - df['Low']
+        
+        # Determine if body is small enough (body ratio condition)
+        body_condition = body_size <= (total_range * body_ratio)
+        
+        # Determine shadow conditions
+        upper_shadow_condition = upper_shadow >= (total_range * shadow_ratio)
+        lower_shadow_condition = lower_shadow >= (total_range * shadow_ratio)
+        
+        # Identify pinbar patterns
+        # Bullish pinbar: long lower shadow, small body
+        bullish_pinbar = body_condition & lower_shadow_condition & (lower_shadow > upper_shadow)
+        
+        # Bearish pinbar: long upper shadow, small body
+        bearish_pinbar = body_condition & upper_shadow_condition & (upper_shadow > lower_shadow)
+        
+        # Set pinbar values
+        df.loc[bullish_pinbar, 'pinbar'] = 1
+        df.loc[bearish_pinbar, 'pinbar'] = -1
+        
+        bullish_count = bullish_pinbar.sum()
+        bearish_count = bearish_pinbar.sum()
+        total_count = bullish_count + bearish_count
+        
+        logger.info(f"Pinbar pattern identification completed. Found {total_count} pinbar patterns ({bullish_count} bullish, {bearish_count} bearish)")
+        
+        return df
+
+    def marubozu(self, df: pd.DataFrame, shadow_tolerance: float = 0.05) -> pd.DataFrame:
+        """
+        Identifies marubozu candlestick patterns.
+        
+        A marubozu is a candlestick with no or very small shadows (wicks),
+        indicating strong directional momentum.
+        
+        Args:
+            df (pd.DataFrame): DataFrame with OHLC data
+            shadow_tolerance (float): Maximum ratio of shadow to total range (default 0.05 = 5%)
+            
+        Returns:
+            pd.DataFrame: DataFrame with added 'marubozu' column (1 for bullish marubozu, -1 for bearish marubozu, 0 otherwise)
+        """
+        logger.info("Identifying marubozu patterns")
+        
+        df = df.copy()
+        df['marubozu'] = 0
+        
+        if len(df) < 1:
+            logger.warning("DataFrame too short for marubozu calculation")
+            return df
+        
+        # Check if required columns exist
+        required_columns = ['Open', 'High', 'Low', 'Close']
+        for col in required_columns:
+            if col not in df.columns:
+                logger.error(f"Required column '{col}' not found in DataFrame")
+                return df
+        
+        # Calculate body size and total range
+        body_size = abs(df['Close'] - df['Open'])
+        total_range = df['High'] - df['Low']
+        
+        # Calculate upper and lower shadows
+        upper_shadow = df['High'] - df[['Open', 'Close']].max(axis=1)
+        lower_shadow = df[['Open', 'Close']].min(axis=1) - df['Low']
+        
+        # Determine if shadows are small enough (marubozu condition)
+        shadow_condition = (upper_shadow <= total_range * shadow_tolerance) & (lower_shadow <= total_range * shadow_tolerance)
+        
+        # Determine if body is substantial (not a doji)
+        body_condition = body_size > (total_range * 0.1)  # Body should be at least 10% of total range
+        
+        # Determine candle direction
+        bullish = df['Close'] > df['Open']
+        bearish = df['Close'] < df['Open']
+        
+        # Identify marubozu patterns
+        # Bullish marubozu: bullish candle with minimal shadows
+        bullish_marubozu = shadow_condition & body_condition & bullish
+        
+        # Bearish marubozu: bearish candle with minimal shadows
+        bearish_marubozu = shadow_condition & body_condition & bearish
+        
+        # Set marubozu values
+        df.loc[bullish_marubozu, 'marubozu'] = 1
+        df.loc[bearish_marubozu, 'marubozu'] = -1
+        
+        bullish_count = bullish_marubozu.sum()
+        bearish_count = bearish_marubozu.sum()
+        total_count = bullish_count + bearish_count
+        
+        logger.info(f"Marubozu pattern identification completed. Found {total_count} marubozu patterns ({bullish_count} bullish, {bearish_count} bearish)")
+        
+        return df
+
 
 class SmartMoneyConcepts:
     """
@@ -148,17 +826,30 @@ class SmartMoneyConcepts:
     in financial markets, including swing highs/lows, swing points, order blocks,
     fair value gaps, and liquidity zones.
     """
-    def __init__(self, symbol: str, min_swing_length: int = 3, min_pip_range: int = 3):
+
+    def __init__(self, mt5_client: MT5Client, symbol: str, min_swing_length: int = 3, min_pip_range: int = 3):
         """
         Initialize the SmartMoneyConcepts analyzer.
         """
         self.symbol = symbol
-        self.pip_value = mt5.symbol_info(self.symbol).point * 10  # Convert point to pip value
         self.min_swing_length = min_swing_length
         self.min_pip_range = min_pip_range
-        logger.info(f"SMC initialized for {symbol}")
-
-
+        
+        # Try to get pip value from MT5, with fallback
+        try:
+            symbol_info = mt5_client.get_symbol_info(self.symbol)
+            if symbol_info is not None and 'point' in symbol_info and symbol_info['point']:
+                self.pip_value = symbol_info['point'] * 10  # Convert point to pip value
+            else:
+                # Fallback for currency indices or when symbol not found
+                self.pip_value = 0.0001  # Default pip value for most forex pairs
+                logger.warning(f"Symbol {symbol} not found in MT5, using default pip value")
+        except Exception as e:
+            # Fallback for any MT5 errors
+            self.pip_value = 0.0001  # Default pip value for most forex pairs
+            logger.warning(f"Error getting symbol info for {symbol}: {e}, using default pip value")
+        
+        logger.info(f"SMC initialized for {symbol} with pip value: {self.pip_value}")
 
     def calculate_swingline(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -258,7 +949,68 @@ class SmartMoneyConcepts:
         logger.info(f"Finalizing swingline calculation. Final swingline: { df['swingline'].iloc[-1]}")
         
         return df
-    
+
+    def _add_h1_swingline(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Converts dataframe to H1 timeframe, calculates swingline, and merges back to original timeframe.
+        
+        Args:
+            df (pd.DataFrame): Original dataframe with datetime index and OHLC data
+            
+        Returns:
+            pd.DataFrame: Original dataframe with added swinglineH1 and swingvalueH1 columns
+        """
+        logger.info("Calculating H1 swingline and merging back to original timeframe")
+        
+        # Check if index is datetime
+        if not isinstance(df.index, pd.DatetimeIndex):
+            logger.error("DataFrame index must be DatetimeIndex for H1 resampling")
+            return df
+        
+        # Create a copy to avoid modifying original
+        df_original = df.copy()
+        
+        # Resample to H1 timeframe
+        # Use OHLC aggregation rules for proper candle formation
+        ohlc_agg = {
+            'Open': 'first',
+            'High': 'max', 
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum' if 'Volume' in df.columns else 'sum'
+        }
+        
+        # Resample to H1
+        df_h1 = df.resample('h', label='right', closed='right').agg(ohlc_agg).dropna()
+        
+        if len(df_h1) < 2:
+            logger.warning("H1 resampled data too short for swingline calculation")
+            return df_original
+        
+        # Calculate swingline on H1 data
+        df_h1 = pd.DataFrame(df_h1)
+        df_h1 = self.calculate_swingline(df_h1)
+        
+        # Select only the swingline and swingvalue columns for merging
+        h1_swingline_data = df_h1[['swingline', 'swingvalue']].copy()
+        
+        # Create new DataFrame with renamed columns
+        h1_swingline_data = pd.DataFrame({
+            'swinglineH1': h1_swingline_data['swingline'],
+            'swingvalueH1': h1_swingline_data['swingvalue']
+        }, index=h1_swingline_data.index)
+        
+        # Forward fill the H1 swingline data to match the original timeframe
+        # This ensures each original timeframe candle gets the H1 swingline values
+        h1_swingline_filled = h1_swingline_data.reindex(df_original.index, method='ffill')
+        
+        # Merge back to original dataframe
+        df_original['swinglineH1'] = h1_swingline_filled['swinglineH1']
+        df_original['swingvalueH1'] = h1_swingline_filled['swingvalueH1']
+        
+        logger.info(f"H1 swingline calculation completed. Added swinglineH1 and swingvalueH1 columns")
+        
+        return df_original
 
     def calculate_swing_points(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -287,23 +1039,27 @@ class SmartMoneyConcepts:
 
             if group_data['swingvalue'].nunique() == 1 or (len(group_data) < self.min_swing_length and range_swing_value < self.min_pip_range):
                 # Get the previous group's swingline value
-                if group_id > 1:
-                    prev_group_id = group_id - 1
+                group_id_int = int(group_id) if isinstance(group_id, (int, float, str)) else 0
+                if group_id_int > 1:
+                    prev_group_id = group_id_int - 1
                     prev_group = df[group_ids == prev_group_id]
 
                     # Handle case where swingline is flat but lower/higher than the last same direction swingline, then keep it dont remove it 
                     # Usually cased by news, rapid price movement or midnight gaps
-                    if group_id > 2:  # Only check if there's a group 2 positions back
-                        same_swing_prev_group_id = group_id - 2
+                    if group_id_int > 2:  # Only check if there's a group 2 positions back
+                        same_swing_prev_group_id = group_id_int - 2
                         same_swing_prev_group = df[group_ids == same_swing_prev_group_id]
                         if len(same_swing_prev_group) > 0:  # Check if the group exists and has data
-                            if group_data['swingline'].iloc[-1] == 1 and same_swing_prev_group['swingline'].iloc[-1] == 1 and group_data['swingvalue'].iloc[-1] > same_swing_prev_group['swingvalue'].iloc[-1]:
+                            group_df = pd.DataFrame(group_data)
+                            prev_group_df = pd.DataFrame(same_swing_prev_group)
+                            if group_df['swingline'].iloc[-1] == 1 and prev_group_df['swingline'].iloc[-1] == 1 and group_df['swingvalue'].iloc[-1] > prev_group_df['swingvalue'].iloc[-1]:
                                 continue
-                            if group_data['swingline'].iloc[-1] == -1 and same_swing_prev_group['swingline'].iloc[-1] == -1 and group_data['swingvalue'].iloc[-1] < same_swing_prev_group['swingvalue'].iloc[-1]:
+                            if group_df['swingline'].iloc[-1] == -1 and prev_group_df['swingline'].iloc[-1] == -1 and group_df['swingvalue'].iloc[-1] < prev_group_df['swingvalue'].iloc[-1]:
                                 continue
 
                     if len(prev_group) > 0:
-                        prev_swingline_value = prev_group['swingline'].iloc[0]
+                        prev_group_df = pd.DataFrame(prev_group)
+                        prev_swingline_value = prev_group_df['swingline'].iloc[0]
                         # Update the current group's swingline values to match the previous group
                         df.loc[group_data.index, 'swingline'] = prev_swingline_value
 
@@ -328,8 +1084,7 @@ class SmartMoneyConcepts:
         logger.info(f"Finalizing swing points calculation. Found {df['swingpoint'].notna().sum()} swing points")
 
         return df
-    
-    
+
     def calculate_support_resistance_levels(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Logic:
@@ -440,7 +1195,6 @@ class SmartMoneyConcepts:
         
         return df
     
-
     def identify_fair_value_gaps(self, df: pd.DataFrame, join_consecutive: bool = True) -> pd.DataFrame:
         """
         FVG - Fair Value Gap
@@ -570,7 +1324,6 @@ class SmartMoneyConcepts:
         logger.info(f"Fair value gaps identification completed. Found {len(fvg_list)} FVGs")
         
         return df
-    
 
     def calculate_order_blocks(self, df: pd.DataFrame, close_mitigation: bool = True) -> pd.DataFrame:
         # TODO: Add close_mitigation logic
@@ -648,7 +1401,6 @@ class SmartMoneyConcepts:
         logger.info("Order blocks calculation (support/resistance region logic) completed.")
         return df
     
-
     def break_of_structure(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         BOS - Break of Structure
@@ -700,7 +1452,6 @@ class SmartMoneyConcepts:
         
         return df
     
-
     def change_of_character(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         CHoCH - Change of Character
@@ -743,7 +1494,8 @@ class SmartMoneyConcepts:
         last_broken_resistance = None
         last_broken_support = None
 
-        for i in range(start_pos + 1, len(df)):
+        start_pos_int = int(start_pos) if isinstance(start_pos, (int, float, str)) else 0
+        for i in range(start_pos_int + 1, len(df)):
             current = df.iloc[i]
             idx = df.index[i]
             prev = df.iloc[i-1]
@@ -797,9 +1549,6 @@ class SmartMoneyConcepts:
         logger.info(f"Change of character calculation completed. Found {choch_count} CHoCH events ({bullish_choch} bullish, {bearish_choch} bearish)")
         return df
     
-
-    
-
     def retracements(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Adds 'CurrentRetracement%' and 'DeepestRetracement%' columns.
@@ -881,7 +1630,6 @@ class SmartMoneyConcepts:
         df['CurrentRetracement'] = df['CurrentRetracement'].round(2)
         df['DeepestRetracement'] = df['DeepestRetracement'].round(2)
         return df
-    
 
     def get_fib_signal(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -950,74 +1698,172 @@ class SmartMoneyConcepts:
 
     def get_bos_retest_signals(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Generates BOS retest signals based on trend_bias, swingline, swingvalue, BOS, and Close.
-        Adds a column 'retest_signal' to df.
+        Generates BOS retest signals based on trend_bias, swingline, swingvalue, BOS, and High/Low.
+        It adds a column 'retest_signal' to df.
         
-        Signal Logic:
-        - Signal = 1 (Buy): trend_bias = 1 and swingline = -1 and prev_close < swingvalue and current_close > swingvalue and retested the last BOS (1), i.e. the lowest point in this current swingline group is below the last BOS (1)
-        - Signal = -1 (Sell): trend_bias = -1 and swingline = 1 and prev_close > swingvalue and current_close < swingvalue and retested the last BOS (-1), i.e. the highest point in this current swingline group is above the last BOS (-1)
-        """
+        Signals continue on subsequent candles until swingline switches direction.
+        Each BOS level can only be retested ONCE - after swingline changes, that level is consumed.
 
-        logger.info("Initiating BOS retest signal generation")
+        Signal Logic:
+        - Signal = 1 (Bullish): trend_bias = 1 and swingline = -1 and Low < swingvalue of the last BOS (==1), 
+          retesting last bullish broken level (continues until swingline switches, then level consumed)
+        - Signal = -1 (Bearish): trend_bias = -1 and swingline = 1 and High > swingvalue of the last BOS (== -1), 
+          retesting last bearish broken level (continues until swingline switches, then level consumed)
+
+        Args:
+            df (pd.DataFrame): DataFrame with trend_bias, swingline, swingvalue, BOS, High, and Low columns
+
+        Returns:
+            pd.DataFrame: DataFrame with added retest_signal column
+        """
+        logger.info("Calculating BOS retest signals (each level consumed after first retest)")
         
         df = df.copy()
+        
+        # Initialize retest_signal column
         df['retest_signal'] = np.nan
-        required_cols = ['trend_bias', 'swingline', 'swingvalue', 'BOS', 'Close']
-        for col in required_cols:
+        
+        if len(df) < 2:
+            logger.warning("DataFrame too short for BOS retest signal calculation")
+            return df
+        
+        # Check if required columns exist
+        required_columns = ['trend_bias', 'swingline', 'swingvalue', 'BOS', 'High', 'Low']
+        for col in required_columns:
             if col not in df.columns:
+                logger.error(f"Required column '{col}' not found in DataFrame")
                 raise ValueError(f"Required column '{col}' not found in DataFrame")
-        last_bos_1_idx = None
-        last_bos_1_val = None
-        last_bos_neg1_idx = None
-        last_bos_neg1_val = None
-        # Track swingline groups
-        swingline_groups = (df['swingline'] != df['swingline'].shift()).cumsum()
-        for i in range(1, len(df)):
+        
+        # Track the last BOS events and their swingvalues
+        last_bullish_bos_swingvalue = None
+        last_bearish_bos_swingvalue = None
+        
+        # Track previous swingline to detect direction changes
+        prev_swingline = None
+        
+        # Track if we're currently in a retest phase
+        in_bullish_retest = False
+        in_bearish_retest = False
+        
+        # Track consumed BOS levels (levels that have been retested and should not be retested again)
+        consumed_bullish_bos_levels = set()
+        consumed_bearish_bos_levels = set()
+        
+        # Process each row to identify BOS retest signals
+        for i in range(len(df)):
             current = df.iloc[i]
-            previous = df.iloc[i-1]
-            group_id = swingline_groups.iloc[i]
-            group_indices = df.index[swingline_groups == group_id]
-            group_lows = df.loc[group_indices, 'Low'] if 'Low' in df.columns else None
-            group_highs = df.loc[group_indices, 'High'] if 'High' in df.columns else None
-            # Track last BOS(1) and BOS(-1)
-            if not np.isnan(current['BOS']):
-                if current['BOS'] == 1:
-                    last_bos_1_idx = i
-                    last_bos_1_val = current['swingvalue']
-                elif current['BOS'] == -1:
-                    last_bos_neg1_idx = i
-                    last_bos_neg1_val = current['swingvalue']
-            # Buy signal
-            if (
-                current['trend_bias'] == 1 and
-                current['swingline'] == -1 and
-                previous['Close'] < previous['swingvalue'] and
-                current['Close'] > current['swingvalue'] and
-                last_bos_1_val is not None and
-                group_lows is not None and
-                group_lows.min() < last_bos_1_val
-            ):
-                df.at[df.index[i], 'retest_signal'] = 1
-            # Sell signal
-            elif (
-                current['trend_bias'] == -1 and
-                current['swingline'] == 1 and
-                previous['Close'] > previous['swingvalue'] and
-                current['Close'] < current['swingvalue'] and
-                last_bos_neg1_val is not None and
-                group_highs is not None and
-                group_highs.max() > last_bos_neg1_val
-            ):
-                df.at[df.index[i], 'retest_signal'] = -1
-        logger.info("BOS retest signal generation completed")
+            current_swingline = current['swingline'] if pd.notna(current['swingline']) else None
+            
+            # Flag to skip retest checking when swingline just changed
+            swingline_just_changed = False
+            
+            # Update last BOS swingvalues when BOS events occur
+            if pd.notna(current['BOS']):
+                if current['BOS'] == 1:  # Bullish BOS
+                    last_bullish_bos_swingvalue = current['swingvalue']
+                    in_bullish_retest = False  # Reset retest state for new BOS
+                    logger.debug(f"Updated last bullish BOS swingvalue to {last_bullish_bos_swingvalue} at index {df.index[i]}")
+                elif current['BOS'] == -1:  # Bearish BOS
+                    last_bearish_bos_swingvalue = current['swingvalue']
+                    in_bearish_retest = False  # Reset retest state for new BOS
+                    logger.debug(f"Updated last bearish BOS swingvalue to {last_bearish_bos_swingvalue} at index {df.index[i]}")
+            
+            # Check for swingline direction change to reset retest phases
+            if prev_swingline is not None and current_swingline is not None:
+                if prev_swingline != current_swingline:
+                    swingline_just_changed = True
+                    # Swingline changed direction, exit current retest phases and mark BOS levels as consumed
+                    if in_bullish_retest and current_swingline == 1:  # Changed from -1 to 1
+                        in_bullish_retest = False
+                        # Mark the bullish BOS level as consumed (cannot be retested again)
+                        if last_bullish_bos_swingvalue is not None:
+                            consumed_bullish_bos_levels.add(last_bullish_bos_swingvalue)
+                            logger.debug(f"Swingline changed from -1 to 1 at index {df.index[i]} - exiting bullish retest and consuming BOS level {last_bullish_bos_swingvalue}")
+                    elif in_bearish_retest and current_swingline == -1:  # Changed from 1 to -1
+                        in_bearish_retest = False
+                        # Mark the bearish BOS level as consumed (cannot be retested again)
+                        if last_bearish_bos_swingvalue is not None:
+                            consumed_bearish_bos_levels.add(last_bearish_bos_swingvalue)
+                            logger.debug(f"Swingline changed from 1 to -1 at index {df.index[i]} - exiting bearish retest and consuming BOS level {last_bearish_bos_swingvalue}")
+                    
+                    # Reset both retest phases when swingline changes
+                    in_bullish_retest = False
+                    in_bearish_retest = False
+                    logger.debug(f"Reset all retest phases at index {df.index[i]} due to swingline change from {prev_swingline} to {current_swingline}")
+            
+            # Check for retest conditions only if we have all required data AND swingline didn't just change
+            if (pd.notna(current['trend_bias']) and 
+                pd.notna(current['swingline']) and 
+                pd.notna(current['High']) and 
+                pd.notna(current['Low']) and
+                not swingline_just_changed):
+                
+                # Bullish retest signal
+                # trend_bias = 1 and swingline = -1 and Low < swingvalue of the last BOS (==1) and level not consumed
+                if (current['trend_bias'] == 1 and 
+                    current['swingline'] == -1 and 
+                    last_bullish_bos_swingvalue is not None and
+                    current['Low'] < last_bullish_bos_swingvalue and
+                    last_bullish_bos_swingvalue not in consumed_bullish_bos_levels):
+                    
+                    df.at[df.index[i], 'retest_signal'] = 1
+                    if not in_bullish_retest:
+                        in_bullish_retest = True
+                        logger.debug(f"Entering bullish retest phase at index {df.index[i]}: "
+                                   f"trend_bias={current['trend_bias']}, swingline={current['swingline']}, "
+                                   f"Low={current['Low']:.5f} < last_bullish_BOS_swingvalue={last_bullish_bos_swingvalue:.5f}")
+                    else:
+                        logger.debug(f"Continuing bullish retest signal at index {df.index[i]}")
+                
+                # Bearish retest signal  
+                # trend_bias = -1 and swingline = 1 and High > swingvalue of the last BOS (== -1) and level not consumed
+                elif (current['trend_bias'] == -1 and 
+                      current['swingline'] == 1 and 
+                      last_bearish_bos_swingvalue is not None and
+                      current['High'] > last_bearish_bos_swingvalue and
+                      last_bearish_bos_swingvalue not in consumed_bearish_bos_levels):
+                    
+                    df.at[df.index[i], 'retest_signal'] = -1
+                    if not in_bearish_retest:
+                        in_bearish_retest = True
+                        logger.debug(f"Entering bearish retest phase at index {df.index[i]}: "
+                                   f"trend_bias={current['trend_bias']}, swingline={current['swingline']}, "
+                                   f"High={current['High']:.5f} > last_bearish_BOS_swingvalue={last_bearish_bos_swingvalue:.5f}")
+                    else:
+                        logger.debug(f"Continuing bearish retest signal at index {df.index[i]}")
+                
+                # If conditions are no longer met, exit retest phases
+                else:
+                    if in_bullish_retest:
+                        in_bullish_retest = False
+                        logger.debug(f"Exiting bullish retest phase at index {df.index[i]} - conditions no longer met")
+                    if in_bearish_retest:
+                        in_bearish_retest = False
+                        logger.debug(f"Exiting bearish retest phase at index {df.index[i]} - conditions no longer met")
+            
+            # Update previous swingline for next iteration
+            if current_swingline is not None:
+                prev_swingline = current_swingline
+        
+        # Count and log results
+        retest_signals = df[df['retest_signal'].notna()]
+        bullish_signals = len(df[df['retest_signal'] == 1])
+        bearish_signals = len(df[df['retest_signal'] == -1])
+        
+        logger.info(f"BOS retest signal calculation completed. Found {len(retest_signals)} retest signals "
+                   f"({bullish_signals} bullish, {bearish_signals} bearish) - each BOS level retested only once")
+        
         return df
-    
 
     def run_smc(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Runs the Smart Money Concepts indicators on the DataFrame.
         """
-        df = self.identify_fair_value_gaps(df, join_consecutive=True)
+        #df = self.identify_fair_value_gaps(df, join_consecutive=True)
+        
+        
+        # Calculate H1 swingline
+        df = self._add_h1_swingline(df)
         df = self.calculate_swingline(df)
         df = self.calculate_swing_points(df)
         df = self.calculate_support_resistance_levels(df)
@@ -1032,13 +1878,4 @@ class SmartMoneyConcepts:
         logger.info(f"Data saved to smc_analysis.csv")
         logger.info("Smart Money Concepts indicators calculation completed")
         return df
-
-
-    
-
-
-
-############### End of Smart Money Concepts ###############
-
-
 
