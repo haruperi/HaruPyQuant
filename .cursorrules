@@ -198,6 +198,8 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
    - Properly handle numpy arrays returned by `copy_rates_range`
    - Always use capitalized OHLCV column names ('Open', 'High', 'Low', 'Close', 'Volume') for consistency with MT5 DataFrame output
    - Handle data type differences: MT5 returns Volume as uint64, but SQLite expects int64
+   - When accessing MT5 symbol info, use `getattr(symbol_info, 'point', default_value)` instead of dictionary access since MT5 returns named tuples, not dictionaries
+   - Run Python modules from project root using `python -m app.module.submodule` instead of `python path/to/file.py` to avoid import issues
    - When using real MT5 data for testing, be aware of data availability limits (e.g., EURUSD history from 2015)
    - Handle DataFrame index properly when MT5 returns data with timestamp as index
 - When working with MT5 tick data in streaming:
