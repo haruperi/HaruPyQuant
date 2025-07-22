@@ -25,12 +25,14 @@ logger = get_logger(__name__)
 class MT5Client:
     """Handles the connection and authentication to the MT5 terminal."""
 
-    def __init__(self, config_path=None, symbols=None, demo=True):
+    def __init__(self, config_path=None, symbols=None, broker=1):
         """
         Initializes the MT5 connection using credentials from the config file.
 
         Args:
             config_path (str): Path to the configuration file. Defaults to DEFAULT_CONFIG_PATH.
+            symbols (list): List of symbols to initialize
+            broker (int): Broker number (1, 2, 3, or 4)
         """
 
         self.config = ConfigParser(interpolation=None)
@@ -44,17 +46,30 @@ class MT5Client:
         
         self.config.read(config_path)
         
-        if demo:
-            self.login = int(self.config['DEMO_MT5']['Login'])
-            self.password = self.config['DEMO_MT5']['Password']
-            self.server = self.config['DEMO_MT5']['Server']
-            self.path = self.config['DEMO_MT5']['Path']
-        else:
+        # Store broker number for symbol mapping
+        self.broker = broker
+        
+        # Initialize symbol mappings based on broker
+        self._init_symbol_mappings()
+        
+        if broker == 1:
             self.login = int(self.config['MT5']['Login'])
             self.password = self.config['MT5']['Password']
             self.server = self.config['MT5']['Server']
             self.path = self.config['MT5']['Path']
-
+        elif broker == 2:
+            self.login = int(self.config['DEMO_MT5']['Login'])
+            self.password = self.config['DEMO_MT5']['Password']
+            self.server = self.config['DEMO_MT5']['Server']
+            self.path = self.config['DEMO_MT5']['Path']
+        elif broker == 3:
+            self.login = int(self.config['MT5_PURPLE']['Login'])
+            self.password = self.config['MT5_PURPLE']['Password']
+            self.server = self.config['MT5_PURPLE']['Server']
+            self.path = self.config['MT5_PURPLE']['Path']
+        else:
+            logger.error(f"Invalid broker specified: {broker}")
+            raise ValueError(f"Invalid broker specified: {broker}")
 
 
         self.symbols = symbols or []
@@ -66,6 +81,58 @@ class MT5Client:
         self._connected = False
         self._initialized = False
         self.connect()
+
+    def _init_symbol_mappings(self):
+        """Initialize symbol mappings based on broker number."""
+        if self.broker == 3:
+            # Purple Trader symbol mappings (adds _ecn suffix)
+            self.symbol_mapping = {
+                "AUDCAD": "AUDCAD_ecn",
+                "AUDCHF": "AUDCHF_ecn",
+                "AUDJPY": "AUDJPY_ecn",
+                "AUDNZD": "AUDNZD_ecn",
+                "AUDUSD": "AUDUSD_ecn",
+                "CADCHF": "CADCHF_ecn",
+                "CADJPY": "CADJPY_ecn",
+                "CHFJPY": "CHFJPY_ecn",
+                "EURAUD": "EURAUD_ecn",
+                "EURCAD": "EURCAD_ecn",
+                "EURCHF": "EURCHF_ecn",
+                "EURGBP": "EURGBP_ecn",
+                "EURJPY": "EURJPY_ecn",
+                "EURNZD": "EURNZD_ecn",
+                "EURUSD": "EURUSD_ecn",
+                "GBPAUD": "GBPAUD_ecn",
+                "GBPCAD": "GBPCAD_ecn",
+                "GBPCHF": "GBPCHF_ecn",
+                "GBPJPY": "GBPJPY_ecn",
+                "GBPNZD": "GBPNZD_ecn",
+                "GBPUSD": "GBPUSD_ecn",
+                "NZDCAD": "NZDCAD_ecn",
+                "NZDCHF": "NZDCHF_ecn",
+                "NZDJPY": "NZDJPY_ecn",
+                "NZDUSD": "NZDUSD_ecn",
+                "USDCHF": "USDCHF_ecn",
+                "USDCAD": "USDCAD_ecn",
+                "USDJPY": "USDJPY_ecn",
+                "XAUUSD": "XAUUSD_ecn",
+                "XAGUSD": "XAGUSD_ecn"
+            }
+        else:
+            # For other brokers, no mapping needed
+            self.symbol_mapping = {}
+
+    def map_symbol(self, symbol: str) -> str:
+        """
+        Map a standard symbol to broker-specific symbol format.
+        
+        Args:
+            symbol (str): Standard symbol (e.g., "EURUSD")
+            
+        Returns:
+            str: Broker-specific symbol (e.g., "EURUSD_ecn" for broker 3)
+        """
+        return self.symbol_mapping.get(symbol, symbol)
 
     def connect(self):
         """Establishes connection to the MetaTrader 5 terminal with retry logic."""
@@ -170,20 +237,18 @@ class MT5Client:
             available_symbol_names = {symbol.name for symbol in available_symbols}
             
             for symbol in self.symbols:
-                if symbol not in available_symbol_names:
-                    logger.warning(f"Symbol {symbol} not available in broker's symbol list")
-                    continue
+                # Map the standard symbol to the broker-specific symbol
+                broker_symbol = self.map_symbol(symbol)
                 
-                # Enable symbol in market watch if not already visible
-                if not self.is_symbol_visible(symbol):
-                    logger.info(f"Adding symbol {symbol} to market watch")
-                    if not mt5.symbol_select(symbol, True): # type: ignore
-                        logger.error(f"Failed to add symbol {symbol} to market watch: {mt5.last_error()}") # type: ignore
+                if broker_symbol not in available_symbol_names:
+                    logger.warning(f"Symbol {symbol} not available in broker's symbol list. Attempting to add.")
+                    if not mt5.symbol_select(broker_symbol, True): # type: ignore
+                        logger.error(f"Failed to add symbol {broker_symbol} to market watch: {mt5.last_error()}") # type: ignore
                         continue
                     
                     # Verify symbol was actually added
-                    if not self.is_symbol_visible(symbol):
-                        logger.error(f"Symbol {symbol} not visible in market watch after adding")
+                    if not self.is_symbol_visible(broker_symbol):
+                        logger.error(f"Symbol {broker_symbol} not visible in market watch after adding")
                         continue
                         
                 logger.debug(f"Symbol {symbol} initialized successfully")
@@ -296,13 +361,16 @@ class MT5Client:
             raise RuntimeError(_MSG_NOT_CONNECTED)
         
         try:
-            symbol_info = mt5.symbol_info(symbol) # type: ignore
+            # Map the symbol to broker-specific format
+            broker_symbol = self.map_symbol(symbol)
+            
+            symbol_info = mt5.symbol_info(broker_symbol) # type: ignore
             if symbol_info is None:
-                raise RuntimeError(f"Failed to get symbol info: {mt5.last_error()}") # type: ignore
+                raise RuntimeError(f"Failed to get symbol info for {symbol} (mapped to {broker_symbol}): {mt5.last_error()}") # type: ignore
             
             return symbol_info
         except Exception as e:
-            logger.error(f"Error getting symbol info for {symbol}: {e}")
+            logger.error(f"Error getting symbol info for {symbol} (mapped to {broker_symbol}): {e}")
             raise
 
     def get_tick(self, symbol: str) -> Optional[Dict[str, Any]]:
@@ -310,11 +378,15 @@ class MT5Client:
         if not self.is_connected():
             logger.error(_MSG_NOT_CONNECTED)
             return None
-        tick = mt5.symbol_info_tick(symbol)  # type: ignore
+        
+        # Map the symbol to broker-specific format
+        broker_symbol = self.map_symbol(symbol)
+        
+        tick = mt5.symbol_info_tick(broker_symbol)  # type: ignore
         if tick:
             # Convert named tuple to dictionary
             return tick._asdict()
-        logger.error(f"Failed to get tick for {symbol}: {mt5.last_error()}")  # type: ignore
+        logger.error(f"Failed to get tick for {symbol} (mapped to {broker_symbol}): {mt5.last_error()}")  # type: ignore
         return None
 
     def get_orders(self) -> List[Dict[str, Any]]:
@@ -394,10 +466,15 @@ class MT5Client:
             rates = mt5.copy_rates_range(symbol, tf, _start, _end) # type: ignore
         else:
             _start_pos = start_pos or 0
-            _count = (end_pos or 1000) - _start_pos # MT5 uses count, not end position
+            _count = int((end_pos or 1000) - _start_pos) # MT5 uses count, not end position, ensure integer
             logger.info(f"Fetching {symbol} data from position {_start_pos}, count {_count}")
             # Corrected call to use copy_rates_from_pos with count
-            rates = mt5.copy_rates_from_pos(symbol, tf, _start_pos, _count) # type: ignore
+            try:
+                rates = mt5.copy_rates_from_pos(symbol, tf, _start_pos, _count) # type: ignore
+            except SystemError as e:
+                error = mt5.last_error() # type: ignore
+                logger.error(f"SystemError getting rates for {symbol}: {error}")
+                return None
 
         if rates is None:
             error = mt5.last_error() # type: ignore
@@ -476,6 +553,11 @@ class MT5Client:
             return None
 
         try:
+            # Map the symbol to broker-specific format
+            broker_symbol = self.map_symbol(symbol)
+            if broker_symbol != symbol:
+                logger.debug(f"Mapped symbol {symbol} to {broker_symbol} for broker {self.broker}")
+            
             tf = self.get_timeframe(timeframe)
             if tf is None:
                 logger.error(f"Invalid timeframe specified: {timeframe}")
@@ -483,7 +565,7 @@ class MT5Client:
             
             # Fetch raw rates using the helper method
             rates = self._get_rates_from_mt5(
-                symbol, tf, start_pos, end_pos, start_date, end_date
+                broker_symbol, tf, start_pos, end_pos, start_date, end_date
             )
             
             # Format rates into DataFrame using the helper method

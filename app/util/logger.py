@@ -34,9 +34,12 @@ def get_logger(name: str) -> logging.Logger:
 
     logger = logging.getLogger(name)
     
+    # Prevent duplicate handlers
     if logger.hasHandlers():
         return logger
 
+    # Prevent propagation to avoid duplicate logs
+    logger.propagate = False
     logger.setLevel(LOG_LEVEL)
 
     # Formatter

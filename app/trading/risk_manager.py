@@ -91,6 +91,8 @@ class RiskManager:
         self.account_balance = account_balance
         self.risk_percentage = risk_percentage
 
+        logger.info(f"Risk manager initialized with account balance: {self.account_balance}, risk percentage: {self.risk_percentage}")
+
     def get_data(self, symbols: list[str], exclude_current_bar: bool = True) -> dict:
         """
         Fetches historical data from MetaTrader 5 for given symbols within a specified date range and timeframe.
@@ -204,30 +206,35 @@ class RiskManager:
         # Calculate the amount to risk
         risk_per_trade_amount = self.account_balance * self.risk_percentage 
 
-        # Get the tick value and convert stop loss to money
-        tick_value = symbol_info['trade_tick_value']
-        if tick_value <= 0:
-            logger.error(f"Invalid tick value: {tick_value}")
+        # Get the tick value and convert stop loss to money - handle MT5 symbol info object
+        try:
+            tick_value = getattr(symbol_info, 'trade_tick_value', 0)
+            if tick_value <= 0:
+                logger.error(f"Invalid tick value: {tick_value}")
+                return 0
+
+            # Convert stop loss pips to points
+            #stop_loss_points = stop_loss_pips * 10
+
+            # Convert stop loss pips to the symbol's base currency value
+            point_size = getattr(symbol_info, 'point', 0.00001)
+            stop_loss_in_currency = stop_loss_pips * point_size * 10 
+            risk_per_lot = stop_loss_in_currency * getattr(symbol_info, 'trade_tick_value', 0) / getattr(symbol_info, 'trade_tick_size', 1)
+
+            position_size_lots = risk_per_trade_amount / risk_per_lot
+
+            # Round down to the nearest valid lot step
+            lot_step = getattr(symbol_info, 'volume_step', 0.01)
+            position_size_lots = (position_size_lots // lot_step) * lot_step
+
+            # Ensure minimum and maximum lot sizes
+            min_lot = getattr(symbol_info, 'volume_min', 0.01)
+            max_lot = getattr(symbol_info, 'volume_max', 100.0)
+            position_size_lots = max(min_lot, min(max_lot, position_size_lots))
+            
+        except AttributeError as e:
+            logger.error(f"Error accessing symbol info attributes: {e}")
             return 0
-
-        # Convert stop loss pips to points
-        #stop_loss_points = stop_loss_pips * 10
-
-        # Convert stop loss pips to the symbol's base currency value
-        point_size = symbol_info['point']
-        stop_loss_in_currency = stop_loss_pips * point_size * 10 
-        risk_per_lot = stop_loss_in_currency * symbol_info['trade_tick_value'] / symbol_info['trade_tick_size']
-
-        position_size_lots = risk_per_trade_amount / risk_per_lot
-
-        # Round down to the nearest valid lot step
-        lot_step = symbol_info['volume_step']
-        position_size_lots = (position_size_lots // lot_step) * lot_step
-
-        # Ensure minimum and maximum lot sizes
-        min_lot = symbol_info['volume_min']
-        max_lot = symbol_info['volume_max']
-        position_size_lots = max(min_lot, min(max_lot, position_size_lots))
 
         return position_size_lots
 
@@ -414,9 +421,22 @@ class RiskManager:
                 current_price = df['Close'].iloc[-1]  # Always use last historical close price
                 logger.debug(f"Using last close price for {symbol}: {current_price:.5f}")
                 
-                # Calculate nominal value
-                nominal_value_per_unit_per_lot = symbol_info['trade_tick_value'] / symbol_info['trade_tick_size']
-                nominal_value = lot_size * nominal_value_per_unit_per_lot * current_price
+                # Calculate nominal value - handle MT5 symbol info object (not dict)
+                try:
+                    # Access attributes directly from MT5 symbol info object
+                    trade_tick_value = getattr(symbol_info, 'trade_tick_value', 0)
+                    trade_tick_size = getattr(symbol_info, 'trade_tick_size', 1)
+                    
+                    if trade_tick_size <= 0:
+                        logger.error(f"Invalid trade_tick_size for {symbol}: {trade_tick_size}")
+                        continue
+                        
+                    nominal_value_per_unit_per_lot = trade_tick_value / trade_tick_size
+                    nominal_value = lot_size * nominal_value_per_unit_per_lot * current_price
+                    
+                except AttributeError as e:
+                    logger.error(f"Error accessing symbol info attributes for {symbol}: {e}")
+                    continue
                 
                 nominal_values[symbol] = nominal_value
                 portfolio_nominal_value += abs(nominal_value)
@@ -959,3 +979,8 @@ if __name__ == "__main__":
     # correlations = get_all_symbols_correlation("2025-07-10", "D1")
     # print(correlations)
  
+
+
+ # TODO: Kill switch
+ # TODO: PNL close
+ # TODO: Size kill

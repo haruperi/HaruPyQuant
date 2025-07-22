@@ -114,10 +114,19 @@ ENV/
 
 # Logs and databases
 *.log
+*.log.*
+*.logs
 *.sql
 *.sqlite 
+*.csv
 
 # Folders
 .history/
 
 # Files
+*.html
+*.png
+
+
+
+

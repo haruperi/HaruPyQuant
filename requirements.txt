@@ -1,5 +1,6 @@
 # Trading Data
 MetaTrader5
+yfinance
 
 # Web Framework
 ## Flask Web App Dependencies
@@ -54,6 +55,7 @@ Pillow
 pandas
 numpy
 tqdm
+termcolor
 
 # Plotting
 bokeh
@@ -77,3 +79,6 @@ websocket-client
 
 # Statistics
 scipy
+
+# Crypto related
+ccxt

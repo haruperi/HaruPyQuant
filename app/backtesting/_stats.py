@@ -148,7 +148,12 @@ def compute_stats(
     longest_trade_length = durations.max() if n_trades > 0 else pd.Timedelta(0)
 
     # Calculate Avg Trades Per Day
-    total_days = duration.days
+    if isinstance(duration, pd.Timedelta):
+        total_days = duration.days
+    else:
+        # If duration is an integer (number of bars), convert to days
+        # Assuming each bar represents a day for non-datetime indices
+        total_days = duration
     avg_trades_per_day = (n_trades / total_days) if total_days > 0 else 0
 
     # Calculate consecutive wins/losses

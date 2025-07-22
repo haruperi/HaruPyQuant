@@ -365,7 +365,42 @@ Test files must follow these naming conventions:
 
 # Scratchpad
 
-## Current Task: Web App Development - React.js + Flask
+## Current Task: Indicators Documentation
+
+### Task Description:
+Write comprehensive documentation for all indicators in the strategy module with use case examples.
+
+### Progress:
+- [X] Analyze all indicator functions in app/strategy/indicators.py
+- [X] Create comprehensive documentation with use case examples
+- [X] Organize documentation by indicator categories
+- [X] Include practical trading examples for each indicator
+- [X] Add best practices and performance considerations
+
+### Implementation Plan:
+1. ✅ Analyze indicator module structure and functions
+2. ✅ Create documentation file in docs/indicators.md
+3. ✅ Document all standard indicators (MA, RSI, Williams %R, ATR)
+4. ✅ Document all custom indicators (ADR, Currency Index, Strength Meter, etc.)
+5. ✅ Document all candlestick patterns (Doji, Engulfing, Pinbar, Marubozu)
+6. ✅ Document all Smart Money Concepts (SMC) indicators
+7. ✅ Include practical use case examples for each indicator
+8. ✅ Add complete SMC analysis example
+9. ✅ Include best practices and performance considerations
+
+### Files Created:
+- ✅ `docs/indicators.md` - Comprehensive documentation for all indicators
+
+### Documentation Coverage:
+- ✅ Standard Indicators (4 functions)
+- ✅ Custom Indicators (5 functions)
+- ✅ Candlestick Patterns (4 patterns)
+- ✅ Smart Money Concepts (11 functions)
+- ✅ Use case examples for each indicator
+- ✅ Complete SMC analysis workflow
+- ✅ Best practices and performance tips
+
+## Previous Task: Web App Development - React.js + Flask
 
 ### Task Description:
 Create a web application with React.js frontend and Flask backend API. The app will be built in the `/app/ui` folder.
