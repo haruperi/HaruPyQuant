@@ -39,6 +39,9 @@ requests
 #httpx
 #pydantic
 
+# Notification Service
+twilio  # Optional: for SMS notifications
+
 # Testing
 #pytest
 #pytest-cov
