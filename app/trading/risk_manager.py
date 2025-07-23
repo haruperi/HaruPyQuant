@@ -557,14 +557,19 @@ class RiskManager:
         """
         current_time = pd.Timestamp.now(tz='UTC')
         
+        # Add a small buffer for timezone differences and processing delays (5 minutes)
+        buffer_time = pd.Timedelta(minutes=5)
+        adjusted_current_time = current_time + buffer_time
+        
         for symbol, df in data.items():
             if df.empty:
                 continue
                 
-            # Check if the last bar timestamp is in the future (should never happen)
+            # Check if the last bar timestamp is in the future (with buffer)
             last_bar_time = df.index[-1]
-            if last_bar_time > current_time:
-                logger.error(f"CRITICAL ERROR: {symbol} has future data: {last_bar_time} > {current_time}")
+            if last_bar_time > adjusted_current_time:
+                logger.error(f"CRITICAL ERROR: {symbol} has future data: {last_bar_time} > {adjusted_current_time}")
+                logger.error(f"Current time: {current_time}, Last bar time: {last_bar_time}")
                 return False
             
             # Verify that we're not using today's incomplete D1 bar

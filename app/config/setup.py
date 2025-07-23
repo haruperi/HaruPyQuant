@@ -38,7 +38,7 @@ JBLANKED_API_KEY = config['JBLANKED']['API_KEY']
 MAX_DEVIATION = 5  # Maximum allowed deviation in points
 MAX_SLIPPAGE = 3  # Maximum allowed slippage in points
 MAGIC_NUMBER = 123456  # Unique identifier for trades placed by this EA
-INITIAL_CAPITAL = 1000  # Initial balance for backtest
+INITIAL_CAPITAL = 276  # Initial balance for backtest
 LOT_SIZE = 0.01  # Lot size for backtest
 RISK_PER_TRADE = 0.01  # Risk per trade in percentage
 MAX_POSITIONS = 5  # Maximum number of concurrent positions
@@ -78,7 +78,7 @@ RANGE_START = datetime.now().strftime("%Y-%m-%d")         # Data retrieval range
 RANGE_END = (datetime.now() - timedelta(days=END_POS_D1)).strftime("%Y-%m-%d")  # Data retrieval index starting point
 START_DATE = "2024-12-15"     # Data retrieval date starting point
 END_DATE = "2025-04-01"       # Data retrieval date ending point
-TEST_SYMBOL = "USDJPY"        # Random symbol for testing purposes
+TEST_SYMBOL = "EURUSD"        # Random symbol for testing purposes
 DEFAULT_SYMBOL = TEST_SYMBOL  # Default symbol for testing and examples
 DEFAULT_START_CANDLE = START_POS  # Default start position for data retrieval
 DEFAULT_END_CANDLE = END_POS      # Default end position for data retrieval
@@ -96,8 +96,11 @@ LOG_LEVEL = "INFO"
 MONGO_DB_NAME = "haru_pyquant"
 MONGO_COLLECTION_NAME = "forex_sample"
 
-BROKER = 3
+BROKER = 2
 # Trading symbols by asset class
+
+# Currency indices available in broker 3
+INDEX_SYMBOLS = ["AUDX", "CADX", "CHFX", "EURX", "GBPX", "JPYX", "NZDX", "USDX"]
 
 if BROKER == 1 or BROKER == 2:
     FOREX_SYMBOLS = [

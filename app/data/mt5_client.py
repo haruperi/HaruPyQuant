@@ -228,6 +228,10 @@ class MT5Client:
             return
         
         try:
+            # First, check symbol availability
+            logger.info("Checking symbol availability...")
+            availability = self.check_symbol_availability()
+            
             # Get all available symbols
             available_symbols = self.symbols_get()
             if available_symbols is None:
@@ -235,32 +239,114 @@ class MT5Client:
                 return
                 
             available_symbol_names = {symbol.name for symbol in available_symbols}
+            logger.debug(f"Available symbols from broker: {sorted(list(available_symbol_names))}")
+            
+            successful_additions = 0
+            failed_additions = 0
+            already_visible = 0
             
             for symbol in self.symbols:
                 # Map the standard symbol to the broker-specific symbol
                 broker_symbol = self.map_symbol(symbol)
                 
+                # Check if symbol is already visible
+                if self.is_symbol_visible(broker_symbol):
+                    logger.debug(f"Symbol {symbol} (mapped to {broker_symbol}) already visible in market watch")
+                    already_visible += 1
+                    successful_additions += 1
+                    continue
+                
+                # Check if symbol is available from broker
                 if broker_symbol not in available_symbol_names:
-                    logger.warning(f"Symbol {symbol} not available in broker's symbol list. Attempting to add.")
-                    if not mt5.symbol_select(broker_symbol, True): # type: ignore
-                        logger.error(f"Failed to add symbol {broker_symbol} to market watch: {mt5.last_error()}") # type: ignore
-                        continue
-                    
-                    # Verify symbol was actually added
-                    if not self.is_symbol_visible(broker_symbol):
-                        logger.error(f"Symbol {broker_symbol} not visible in market watch after adding")
-                        continue
-                        
-                logger.debug(f"Symbol {symbol} initialized successfully")
+                    logger.warning(f"Symbol {symbol} (mapped to {broker_symbol}) not available from broker")
+                    failed_additions += 1
+                    continue
+                
+                # Try to add the symbol to market watch
+                logger.debug(f"Attempting to add symbol {symbol} (mapped to {broker_symbol}) to market watch")
+                
+                if not mt5.symbol_select(broker_symbol, True): # type: ignore
+                    error_code = mt5.last_error() # type: ignore
+                    logger.error(f"Failed to add symbol {broker_symbol} to market watch: {error_code}")
+                    failed_additions += 1
+                    continue
+                
+                # Verify symbol was actually added and is visible
+                if not self.is_symbol_visible(broker_symbol):
+                    logger.error(f"Symbol {broker_symbol} not visible in market watch after adding")
+                    failed_additions += 1
+                    continue
+                
+                logger.debug(f"Symbol {symbol} (mapped to {broker_symbol}) successfully added to market watch")
+                successful_additions += 1
                 self._initialized = True
             
-            # Log summary
-            visible_symbols = [s for s in self.symbols if self.is_symbol_visible(s)]
-            logger.info(f"Symbol initialization completed. {len(visible_symbols)}/{len(self.symbols)} symbols visible in market watch")
+            # Log detailed summary
+            visible_symbols = []
+            for symbol in self.symbols:
+                broker_symbol = self.map_symbol(symbol)
+                if self.is_symbol_visible(broker_symbol):
+                    visible_symbols.append(symbol)
+            
+            logger.info(f"Symbol initialization completed:")
+            logger.info(f"  - Already visible: {already_visible}/{len(self.symbols)} symbols")
+            logger.info(f"  - Successfully added: {successful_additions}/{len(self.symbols)} symbols")
+            logger.info(f"  - Failed to add: {failed_additions}/{len(self.symbols)} symbols")
+            logger.info(f"  - Currently visible: {len(visible_symbols)}/{len(self.symbols)} symbols")
+            
+            if failed_additions > 0:
+                logger.warning(f"Failed to add {failed_additions} symbols. Check broker symbol availability.")
+                # Log which symbols failed
+                failed_symbols = []
+                for symbol in self.symbols:
+                    broker_symbol = self.map_symbol(symbol)
+                    if not self.is_symbol_visible(broker_symbol):
+                        failed_symbols.append(f"{symbol} (mapped to {broker_symbol})")
+                if failed_symbols:
+                    logger.warning(f"Failed symbols: {', '.join(failed_symbols)}")
+                
+                # Try to refresh market watch and retry failed symbols
+                logger.info("Attempting to refresh market watch and retry failed symbols...")
+                self._retry_failed_symbols(failed_symbols)
             
         except Exception as e:
             logger.error(f"Error initializing symbols: {e}")
             raise
+
+    def _retry_failed_symbols(self, failed_symbols: List[str]) -> None:
+        """
+        Retry adding failed symbols after a brief delay.
+        
+        Args:
+            failed_symbols: List of failed symbol descriptions
+        """
+        try:
+            import time
+            time.sleep(2)  # Brief delay to allow MT5 to process
+            
+            retry_success = 0
+            for symbol_desc in failed_symbols:
+                # Extract the original symbol name from the description
+                symbol = symbol_desc.split(' (mapped to ')[0]
+                broker_symbol = self.map_symbol(symbol)
+                
+                logger.debug(f"Retrying to add symbol {symbol} (mapped to {broker_symbol})")
+                
+                if mt5.symbol_select(broker_symbol, True): # type: ignore
+                    if self.is_symbol_visible(broker_symbol):
+                        logger.info(f"Successfully added {symbol} (mapped to {broker_symbol}) on retry")
+                        retry_success += 1
+                    else:
+                        logger.warning(f"Symbol {broker_symbol} still not visible after retry")
+                else:
+                    error_code = mt5.last_error() # type: ignore
+                    logger.warning(f"Failed to add {broker_symbol} on retry: {error_code}")
+            
+            if retry_success > 0:
+                logger.info(f"Successfully added {retry_success} symbols on retry")
+            
+        except Exception as e:
+            logger.error(f"Error during symbol retry: {e}")
 
     def symbols_get(self):
         """
@@ -306,11 +392,128 @@ class MT5Client:
         try:
             symbol_info = mt5.symbol_info(symbol) # type: ignore
             if symbol_info is None:
+                logger.debug(f"Symbol {symbol} not found in MT5")
                 return False
-            return bool(symbol_info.visible)
+            is_visible = bool(symbol_info.visible)
+            logger.debug(f"Symbol {symbol} visibility: {is_visible}")
+            return is_visible
         except Exception as e:
             logger.error(f"Error checking symbol visibility for {symbol}: {e}")
             return False
+
+    def get_available_symbols(self) -> List[str]:
+        """
+        Get list of all available symbols from the broker.
+        
+        Returns:
+            List[str]: List of available symbol names
+        """
+        if not self.is_connected():
+            logger.error(_MSG_NOT_CONNECTED)
+            return []
+        
+        try:
+            symbols = self.symbols_get()
+            if symbols is None:
+                return []
+            
+            return [symbol.name for symbol in symbols]
+        except Exception as e:
+            logger.error(f"Error getting available symbols: {e}")
+            return []
+
+    def check_symbol_availability(self) -> Dict[str, bool]:
+        """
+        Check availability of all requested symbols.
+        
+        Returns:
+            Dict[str, bool]: Dictionary mapping symbol names to availability status
+        """
+        if not self.is_connected():
+            logger.error(_MSG_NOT_CONNECTED)
+            return {}
+        
+        try:
+            available_symbols = self.get_available_symbols()
+            availability = {}
+            
+            for symbol in self.symbols:
+                broker_symbol = self.map_symbol(symbol)
+                is_available = broker_symbol in available_symbols
+                availability[symbol] = is_available
+                logger.debug(f"Symbol {symbol} (mapped to {broker_symbol}): {'Available' if is_available else 'Not Available'}")
+            
+            return availability
+        except Exception as e:
+            logger.error(f"Error checking symbol availability: {e}")
+            return {}
+
+    def get_market_watch_symbols(self) -> List[str]:
+        """
+        Get list of symbols currently visible in the market watch.
+        
+        Returns:
+            List[str]: List of symbol names visible in market watch
+        """
+        if not self.is_connected():
+            logger.error(_MSG_NOT_CONNECTED)
+            return []
+        
+        try:
+            symbols = self.symbols_get()
+            if symbols is None:
+                return []
+            
+            visible_symbols = [symbol.name for symbol in symbols if symbol.visible]
+            logger.debug(f"Market watch symbols: {visible_symbols}")
+            return visible_symbols
+        except Exception as e:
+            logger.error(f"Error getting market watch symbols: {e}")
+            return []
+
+    def print_symbol_status(self) -> None:
+        """
+        Print detailed status of all requested symbols.
+        Useful for debugging symbol initialization issues.
+        """
+        if not self.is_connected():
+            logger.error(_MSG_NOT_CONNECTED)
+            return
+        
+        try:
+            logger.info("=== Symbol Status Report ===")
+            logger.info(f"Requested symbols: {self.symbols}")
+            logger.info(f"Broker number: {self.broker}")
+            
+            available_symbols = self.get_available_symbols()
+            market_watch_symbols = self.get_market_watch_symbols()
+            
+            logger.info(f"Available from broker: {len(available_symbols)} symbols")
+            logger.info(f"Visible in market watch: {len(market_watch_symbols)} symbols")
+            
+            logger.info("\nDetailed symbol status:")
+            for symbol in self.symbols:
+                broker_symbol = self.map_symbol(symbol)
+                is_available = broker_symbol in available_symbols
+                is_visible = broker_symbol in market_watch_symbols
+                
+                status = []
+                if is_available:
+                    status.append("Available")
+                else:
+                    status.append("Not Available")
+                
+                if is_visible:
+                    status.append("Visible")
+                else:
+                    status.append("Not Visible")
+                
+                logger.info(f"  {symbol} (mapped to {broker_symbol}): {', '.join(status)}")
+            
+            logger.info("=== End Symbol Status Report ===")
+            
+        except Exception as e:
+            logger.error(f"Error printing symbol status: {e}")
     
     def get_account_info(self) -> Dict[str, Any]:
         """

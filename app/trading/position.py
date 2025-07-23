@@ -89,6 +89,14 @@ class Position:
         # This is a simplified PnL calculation.
         # A more accurate calculation would consider pip value, contract size, etc.
         self.pnl = price_diff * self.volume
+    
+    @property
+    def unrealized_pnl(self) -> float:
+        """
+        Get the unrealized profit and loss for the position.
+        This is an alias for the pnl attribute for compatibility.
+        """
+        return self.pnl
 
     def close(self, exit_price: float, exit_at: Optional[datetime] = None):
         """

@@ -1,8 +1,8 @@
 {
-  "timestamp": "2025-07-16T12:05:39.548284",
-  "status": "stopped",
-  "uptime": 48.20545244216919,
-  "memory_usage": 22.5234375,
+  "timestamp": "2025-07-22T23:54:10.064965",
+  "status": "running",
+  "uptime": 900.0259833335876,
+  "memory_usage": 144.671875,
   "cpu_usage": 0.0,
   "active_connections": 0,
   "active_positions": 0,
