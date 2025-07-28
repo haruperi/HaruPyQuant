@@ -2,7 +2,7 @@ import pandas as pd
 from typing import Dict, Any
 from app.config.setup import *
 from .base import BaseStrategy
-from .indicators import calculate_ma
+from .indicators import ma
 
 logger = get_logger(__name__)
 
@@ -14,7 +14,7 @@ class NaiveTrendStrategy(BaseStrategy):
     - Bias EMA (to determine the overall trend direction)
     """
 
-    def __init__(self, parameters: Dict[str, Any]):
+    def __init__(self, mt5_client: MT5Client, parameters: Dict[str, Any]):
         """
         Initializes the naive trend strategy.
 
@@ -28,9 +28,9 @@ class NaiveTrendStrategy(BaseStrategy):
             'bias_ema_period': 144
         }
         default_params.update(parameters)
-        super().__init__(default_params)
+        super().__init__(mt5_client, default_params)
 
-    def get_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+    def get_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Calculates trading signals based on the 3-EMA strategy.
 
@@ -57,9 +57,9 @@ class NaiveTrendStrategy(BaseStrategy):
         slow_period = self.parameters['slow_ema_period']
         bias_period = self.parameters['bias_ema_period']
 
-        df = calculate_ma(df, fast_period, "EMA", 'Close')
-        df = calculate_ma(df, slow_period, "EMA", 'Close')
-        df = calculate_ma(df, bias_period, "EMA", 'Close')
+        df = ma(df, fast_period, "EMA", 'Close')
+        df = ma(df, slow_period, "EMA", 'Close')
+        df = ma(df, bias_period, "EMA", 'Close')
         
         # Get the column names that were created
         fast_ema_col = f'ema_{fast_period}'
@@ -82,74 +82,7 @@ class NaiveTrendStrategy(BaseStrategy):
         return df 
 
 
-# Backtesting the strategy
-if __name__ == "__main__":
-    # 1. Importing here to avoid circular imports and unnecessary imports during normal execution
-    from app.backtesting import Backtest, Strategy
-
-    # 2. Backtesting functions
-    def calculate_position_size(equity, risk_percent, price_distance):
-        risk_amount = equity * risk_percent / 100             
-        position_size = max(1000, (int(risk_amount / price_distance) // 1000) * 1000)
-        #print(f"Position size: {position_size}, Equity: {equity}, Risk Amount: {risk_amount}, Price distance: {price_distance}")
-        return position_size
-
-    class NaiveTrendFollowing(Strategy):
-
-        take_profit = 20
-        stop_loss = 10
-
-        risk_percent = RISK_PER_TRADE
-        commission = 0.00005
-        leverage = 10
-
-        def init(self):
-            pass
 
 
-        def next(self):
-            
-            symbol_info = mt5_client.get_symbol_info(DEFAULT_SYMBOL)
-            # Access point value directly from the symbol info object
-            point_value = getattr(symbol_info, 'point', 0.00001)  # Default fallback
-            price = self.data.Close[-1]
 
-            print(f"Current Trades: {len(self.trades)}")
-            
-            if (self.data.Signal[-1] == 1 and not self.position):
 
-                sl_price = price - self.stop_loss * point_value * 10
-                tp_price = price + self.take_profit * point_value * 10
-
-                position_size = calculate_position_size(self.equity, self.risk_percent, self.stop_loss* point_value * 10)
-                self.buy(size=position_size, sl = sl_price, tp = tp_price)
-        
-
-            elif (self.data.Signal[-1] == -1 and not self.position):
-                
-                sl_price = price + self.stop_loss * point_value * 10
-                tp_price = price - self.take_profit * point_value * 10
-
-                position_size = calculate_position_size(self.equity, self.risk_percent, self.stop_loss* point_value * 10)
-                self.sell(size=position_size, sl = sl_price, tp = tp_price)
-
-    # 3. Fetching data
-    mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=ALL_SYMBOLS, demo=True)
-    df = mt5_client.fetch_data("EURUSD", "M5", start_pos=0, end_pos=300)
-
-    # 4. Getting strategy signals
-    strategy_name = NaiveTrendFollowing
-    strategy = NaiveTrendStrategy(parameters={"fast_ema_period": 12, "slow_ema_period": 24, "bias_ema_period": 72})
-    if df is not None:
-        signals = strategy.get_signals(df)
-        print(signals)
-    else:
-        print("Failed to fetch data")
-
-    # 5. Backtest
-    backtest = Backtest(signals, strategy_name, cash=INITIAL_CAPITAL, margin=MARGIN, spread=SPREAD)
-    stats = backtest.run()
-    print(f"Backtest results: {stats}")
-
-    # 6. Plot results
-    backtest.plot(filename=os.path.join(BACKTESTS_DIR, strategy_name.__name__))
