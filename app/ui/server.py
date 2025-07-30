@@ -14,24 +14,16 @@ from datetime import datetime, time
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-# Add the parent directory to the path to import app modules
-app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, app_dir)
-
-# Also add the project root to the path
-project_root = os.path.dirname(app_dir)
+# Add project root to Python path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
 sys.path.insert(0, project_root)
 
-try:
-    from app.util.logger import get_logger
-    logger = get_logger(__name__)
-    print(f"Successfully imported logger from {app_dir}")
-except ImportError as e:
-    print(f"Warning: Could not import app logger: {e}")
-    print(f"Current sys.path: {sys.path}")
-    # Fallback logging if app logger is not available
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+# Now import from app modules
+from app.config.setup import *
+
+
+logger = get_logger(__name__)
 
 # ==============================================================================
 # APP INITIALIZATION AND CORS
@@ -80,27 +72,27 @@ def get_status():
     try:
         logger.info("Attempting to import MT5Client for status check...")
         from app.data.mt5_client import MT5Client
-        logger.info("✓ MT5Client imported successfully for status check")
+        logger.info("MT5Client imported successfully for status check")
         
         mt5_status = "disconnected"
         try:
             logger.info("Creating MT5Client instance for status check...")
-            mt5_client = MT5Client()
-            logger.info("✓ MT5Client instance created for status check")
+            mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=ALL_SYMBOLS, broker=BROKER)
+            logger.info("MT5Client instance created for status check")
             
             logger.info("Checking MT5 connection status...")
             if mt5_client.is_connected():
                 mt5_status = "connected"
-                logger.info("✓ MT5 is connected")
+                logger.info("MT5 is connected")
             else:
-                logger.warning("❌ MT5 is not connected")
+                logger.warning("MT5 is not connected")
             
             logger.info("Shutting down MT5Client...")
             mt5_client.shutdown()
-            logger.info("✓ MT5Client shut down")
+            logger.info("MT5Client shut down")
             
         except Exception as e:
-            logger.error(f"❌ MT5 connection check failed: {e}")
+            logger.error(f"MT5 connection check failed: {e}")
             logger.exception("Full exception details:")
         
         logger.info(f"Final MT5 status: {mt5_status}")
@@ -112,7 +104,7 @@ def get_status():
             'timestamp': datetime.utcnow().isoformat()
         })
     except ImportError as e:
-        logger.error(f"❌ Failed to import MT5Client for status check: {e}")
+        logger.error(f"Failed to import MT5Client for status check: {e}")
         return jsonify({
             'status': 'error',
             'error': f"MT5Client import failed: {str(e)}",
@@ -120,7 +112,7 @@ def get_status():
             'timestamp': datetime.utcnow().isoformat()
         }), 500
     except Exception as e:
-        logger.error(f"❌ Status check failed: {e}")
+        logger.error(f"Status check failed: {e}")
         logger.exception("Full exception details:")
         return jsonify({
             'status': 'error',
@@ -140,18 +132,18 @@ def dashboard_metrics():
     try:
         logger.info("Attempting to import MT5Client...")
         from app.data.mt5_client import MT5Client
-        logger.info("✓ MT5Client imported successfully")
+        logger.info("MT5Client imported successfully")
         
         logger.info("Creating MT5Client instance...")
-        mt5_client = MT5Client()
-        logger.info("✓ MT5Client instance created")
+        mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=ALL_SYMBOLS, broker=BROKER)
+        logger.info("MT5Client instance created")
         
         logger.info("Checking MT5 connection status...")
         connection_status = mt5_client.is_connected()
         logger.info(f"MT5 connection status: {connection_status}")
         
         if not connection_status:
-            logger.warning("❌ MT5 not connected, returning fallback dummy data")
+            logger.warning("MT5 not connected, returning fallback dummy data")
             logger.info("=== Returning fallback data ===")
             return jsonify({
                 'closed_positions': 114,
@@ -164,7 +156,7 @@ def dashboard_metrics():
                 'balance': 99254.86
             })
         
-        logger.info("✓ MT5 is connected, fetching account info...")
+        logger.info("MT5 is connected, fetching account info...")
         account = mt5_client.get_account_info()
         logger.info(f"Account info retrieved: {account}")
         
@@ -174,7 +166,7 @@ def dashboard_metrics():
         
         logger.info("Shutting down MT5 connection...")
         mt5_client.shutdown()
-        logger.info("✓ MT5 connection shut down")
+        logger.info("MT5 connection shut down")
         
         # Dummy calculations for now - replace with real calculations
         closed_count = 114
@@ -200,7 +192,7 @@ def dashboard_metrics():
             'balance': balance
         })
     except ImportError as e:
-        logger.error(f"❌ Failed to import MT5Client: {e}")
+        logger.error(f"Failed to import MT5Client: {e}")
         logger.warning("Returning fallback dummy data due to import error")
         return jsonify({
             'closed_positions': 114,
@@ -213,7 +205,7 @@ def dashboard_metrics():
             'balance': 99254.86
         })
     except Exception as e:
-        logger.exception(f"❌ Error fetching MT5 dashboard metrics: {e}")
+        logger.exception(f"Error fetching MT5 dashboard metrics: {e}")
         logger.warning("Returning fallback dummy data due to error")
         return jsonify({
             'closed_positions': 114,
@@ -246,14 +238,18 @@ def get_technical_indicators():
     
     logger.info(f"Received params: symbol={symbol}, timeframe={timeframe}, mode={mode}, bars={bars}, start_date={start_date}, end_date={end_date}, indicators={indicators}")
 
+    # Validate required parameters
+    if not symbol or not timeframe:
+        return jsonify({'error': 'symbol and timeframe are required parameters'}), 400
+
     try:
         from app.data.mt5_client import MT5Client
-        from app.strategy.indicators import ema_series
+        from app.strategy.indicators import calculate_ma
         logger.info("Attempting to create MT5Client instance for indicators...")
-        mt5 = MT5Client()
-        logger.info("✓ MT5Client instance created")
+        mt5 = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=ALL_SYMBOLS, broker=BROKER)
+        logger.info("MT5Client instance created")
         if not mt5.is_connected():
-            logger.error("❌ MT5 not connected")
+            logger.error("MT5 not connected")
             return jsonify({'error': 'MT5 not connected'}), 500
 
         df = None
@@ -266,8 +262,14 @@ def get_technical_indicators():
             logger.info(f"Fetching data for {symbol} {timeframe} from {start_date} to {end_date}")
             start_str = start_date[:10] if start_date else None
             end_str = end_date[:10] if end_date else None
-            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if start_str else None
-            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if end_str else None
+            
+            if not start_str or not end_str:
+                logger.error("start_date and end_date are required for date mode")
+                #return jsonify({'error': 'start_date and end_date are required for date mode'}), 400
+            else:
+                start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
+                end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
+                
             start_of_day = datetime.combine(start_dt, time.min)  # 00:00:00
             end_of_day = datetime.combine(end_dt, time.max)    # 23:59:59.999999
             df = mt5.fetch_data(symbol, timeframe, start_date=start_of_day, end_date=end_of_day)
@@ -283,8 +285,10 @@ def get_technical_indicators():
         for indicator in indicator_list:
             try:
                 if indicator == 'EMA20':
-                    ema_values = ema_series(df['Close'], 20)
-                    indicator_data[indicator] = ema_values.tolist()
+                    # Use calculate_ma function instead of ema_series
+                    df_with_ema = calculate_ma(df, period=20, ma_type="EMA", column='Close')
+                    ema_values = df_with_ema['ema_20'].tolist()
+                    indicator_data[indicator] = ema_values
                     logger.info(f"Calculated {indicator} with period 20")
                 else:
                     logger.warning(f"Unsupported indicator: {indicator}")
@@ -298,11 +302,68 @@ def get_technical_indicators():
         return jsonify({'indicators': indicator_data})
         
     except ImportError as e:
-        logger.error(f"❌ Failed to import required modules: {e}")
+        logger.error(f"Failed to import required modules: {e}")
         return jsonify({'error': f'Import failed: {str(e)}'}), 500
     except Exception as e:
         logger.exception(f"Error calculating technical indicators: {e}")
         return jsonify({'error': str(e)}), 500
+
+# ------------------------------------------------------------------------------
+# Correlation Matrix
+# ------------------------------------------------------------------------------
+@app.route('/api/correlation-matrix', methods=['GET'])
+def get_correlation_matrix():
+    """
+    Calculate and return the correlation matrix for all symbols.
+    Query params: date, timeframe
+    """
+    logger.info("=== Starting correlation matrix request ===")
+    date = request.args.get('date')
+    timeframe = request.args.get('timeframe')
+    logger.info(f"Received params: date={date}, timeframe={timeframe}")
+
+    # Validate required parameters
+    if not timeframe:
+        return jsonify({'error': 'timeframe is a required parameter'}), 400
+
+    try:
+        from app.trading.risk_manager import get_all_symbols_correlation
+        
+        logger.info("Fetching correlation matrix...")
+        correlation_df = get_all_symbols_correlation(date_input=date, timeframe=timeframe)
+        
+        if correlation_df is None or correlation_df.empty:
+            logger.warning("Correlation matrix is empty.")
+            return jsonify({'error': 'Could not generate correlation matrix. Check logs.'}), 404
+
+        # Process the DataFrame
+        # Multiply by 100 and round
+        correlation_df = (correlation_df * 100).round()
+
+        # Set diagonal to 100
+        for i in range(len(correlation_df.columns)):
+            correlation_df.iloc[i, i] = 100
+
+        # Replace NaN with null for JSON compatibility
+        correlation_df = correlation_df.where(pd.notnull(correlation_df), None)
+
+        # Convert to JSON format for Plotly
+        data = {
+            'z': correlation_df.values.tolist(),
+            'x': correlation_df.columns.tolist(),
+            'y': correlation_df.index.tolist()
+        }
+        
+        logger.info("Successfully generated correlation matrix.")
+        return jsonify(data)
+
+    except ImportError as e:
+        logger.error(f"Failed to import module: {e}")
+        return jsonify({'error': f'Import Error: {e}'}), 500
+    except Exception as e:
+        logger.exception(f"Error generating correlation matrix: {e}")
+        return jsonify({'error': str(e)}), 500
+
 
 # ------------------------------------------------------------------------------
 # SMC Data
@@ -323,14 +384,18 @@ def get_smc_data():
     
     logger.info(f"Received params: symbol={symbol}, timeframe={timeframe}, mode={mode}, bars={bars}, start_date={start_date}, end_date={end_date}")
 
+    # Validate required parameters
+    if not symbol or not timeframe:
+        return jsonify({'error': 'symbol and timeframe are required parameters'}), 400
+
     try:
         from app.data.mt5_client import MT5Client
         from app.strategy.indicators import SmartMoneyConcepts
         logger.info("Attempting to create MT5Client instance for SMC...")
-        mt5 = MT5Client()
-        logger.info("✓ MT5Client instance created")
+        mt5 = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=ALL_SYMBOLS, broker=BROKER)
+        logger.info("MT5Client instance created")
         if not mt5.is_connected():
-            logger.error("❌ MT5 not connected")
+            logger.error("MT5 not connected")
             return jsonify({'error': 'MT5 not connected'}), 500
 
         df = None
@@ -343,8 +408,14 @@ def get_smc_data():
             logger.info(f"Fetching data for {symbol} {timeframe} from {start_date} to {end_date}")
             start_str = start_date[:10] if start_date else None
             end_str = end_date[:10] if end_date else None
-            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if start_str else None
-            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if end_str else None
+            
+            if not start_str or not end_str:
+                logger.error("start_date and end_date are required for date mode")
+                #return jsonify({'error': 'start_date and end_date are required for date mode'}), 400
+            else:
+                start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
+                end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
+                
             start_of_day = datetime.combine(start_dt, time.min)  # 00:00:00
             end_of_day = datetime.combine(end_dt, time.max)    # 23:59:59.999999
             df = mt5.fetch_data(symbol, timeframe, start_date=start_of_day, end_date=end_of_day)
@@ -355,7 +426,7 @@ def get_smc_data():
 
         # Calculate SMC data
         logger.info("Calculating SMC data...")
-        smc = SmartMoneyConcepts(symbol)
+        smc = SmartMoneyConcepts(mt5, symbol)
         
         # Run the complete SMC analysis
         df = smc.run_smc(df)
@@ -365,7 +436,7 @@ def get_smc_data():
         for column in ['swingline', 'swingvalue', 'swingpoint', 'Resistance', 'Support', 'BOS', 'CHoCH', 
                       'Bullish_Order_Block_Top', 'Bullish_Order_Block_Bottom', 'Bullish_Order_Block_Mitigated',
                       'Bearish_Order_Block_Top', 'Bearish_Order_Block_Bottom', 'Bearish_Order_Block_Mitigated',
-                      'fib_signal', 'retest_signal']:
+                      'fib_signal', 'retest_signal', 'swinglineH1', 'swingvalueH1']:
             if column in df.columns:
                 # Convert NaN and other non-serializable values to None
                 column_data = df[column].tolist()
@@ -394,7 +465,7 @@ def get_smc_data():
             return jsonify({'error': f'JSON serialization failed: {str(e)}'}), 500
         
     except ImportError as e:
-        logger.error(f"❌ Failed to import required modules: {e}")
+        logger.error(f"Failed to import required modules: {e}")
         return jsonify({'error': f'Import failed: {str(e)}'}), 500
     except Exception as e:
         logger.exception(f"Error calculating SMC data: {e}")
@@ -418,13 +489,17 @@ def get_mt5_data():
     end_date = request.args.get('end_date')
     logger.info(f"Received params: symbol={symbol}, timeframe={timeframe}, mode={mode}, bars={bars}, start_date={start_date}, end_date={end_date}")
 
+    # Validate required parameters
+    if not symbol or not timeframe:
+        return jsonify({'error': 'symbol and timeframe are required parameters'}), 400
+
     try:
         from app.data.mt5_client import MT5Client
         logger.info("Attempting to create MT5Client instance for data fetch...")
-        mt5 = MT5Client()
-        logger.info("✓ MT5Client instance created")
+        mt5 = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=ALL_SYMBOLS, broker=BROKER)
+        logger.info("MT5Client instance created")
         if not mt5.is_connected():
-            logger.error("❌ MT5 not connected")
+            logger.error("MT5 not connected")
             return jsonify({'error': 'MT5 not connected'}), 500
 
         df = None
@@ -437,8 +512,14 @@ def get_mt5_data():
             logger.info(f"Fetching data for {symbol} {timeframe} from {start_date} to {end_date}")
             start_str = start_date[:10] if start_date else None
             end_str = end_date[:10] if end_date else None
-            start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if start_str else None
-            end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date() if end_str else None
+            
+            if not start_str or not end_str:
+                logger.error("start_date and end_date are required for date mode")
+                #return jsonify({'error': 'start_date and end_date are required for date mode'}), 400
+            else:
+                start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
+                end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
+                
             start_of_day = datetime.combine(start_dt, time.min)  # 00:00:00
             end_of_day = datetime.combine(end_dt, time.max)    # 23:59:59.999999
             df = mt5.fetch_data(symbol, timeframe, start_date=start_of_day, end_date=end_of_day)
@@ -450,7 +531,12 @@ def get_mt5_data():
         # Format for lightweight-charts/plotly
         data = []
         for ts, row in df.iterrows():
-            tval = ts.isoformat()
+            # Handle timestamp conversion properly
+            try:
+                tval = ts.isoformat()  # type: ignore
+            except AttributeError:
+                # Fallback for non-datetime index
+                tval = str(ts)
             data.append({
                 'time': tval,
                 'open': round(float(row['Open']), 5),
@@ -461,7 +547,7 @@ def get_mt5_data():
         logger.info(f"Returning {len(data)} bars for {symbol} {timeframe}")
         return jsonify({'data': data})
     except ImportError as e:
-        logger.error(f"❌ Failed to import MT5Client: {e}")
+        logger.error(f"Failed to import MT5Client: {e}")
         return jsonify({'error': f'MT5Client import failed: {str(e)}'}), 500
     except Exception as e:
         logger.exception(f"Error fetching MT5 data: {e}")

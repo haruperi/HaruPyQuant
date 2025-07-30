@@ -1,14 +1,14 @@
 import pandas as pd
 import numpy as np
+from scipy.stats import gmean
 from typing import Dict
 from app.config.setup import *
 
 logger = get_logger(__name__)
 
-
 ######################### Standard indicators #########################
 
-def calculate_ma(df: pd.DataFrame, period: int = FAST_MA_PERIOD, ma_type: str = "EMA", column: str = 'Close') -> pd.DataFrame:
+def ma(df: pd.DataFrame, period: int = FAST_MA_PERIOD, ma_type: str = "EMA", column: str = 'Close') -> pd.DataFrame:
     """
     Calculates Moving Average (MA) and adds it to the DataFrame.
 
@@ -55,7 +55,7 @@ def calculate_ma(df: pd.DataFrame, period: int = FAST_MA_PERIOD, ma_type: str = 
     
     return df_result
 
-def calculate_rsi(df: pd.DataFrame, period: int = RSI_PERIOD, column: str = 'Close') -> pd.DataFrame:
+def rsi(df: pd.DataFrame, period: int = RSI_PERIOD, column: str = 'Close') -> pd.DataFrame:
     """
     Calculates the Relative Strength Index (RSI) and adds it to the DataFrame.
 
@@ -93,7 +93,7 @@ def calculate_rsi(df: pd.DataFrame, period: int = RSI_PERIOD, column: str = 'Clo
     
     return df_result
 
-def calculate_williams_percent(df: pd.DataFrame, period: int = WILLIAMS_R_PERIOD) -> pd.DataFrame:
+def williams_percent(df: pd.DataFrame, period: int = WILLIAMS_R_PERIOD) -> pd.DataFrame:
     """
     Calculates the Williams %R indicator and adds it to the DataFrame.
 
@@ -134,7 +134,7 @@ def calculate_williams_percent(df: pd.DataFrame, period: int = WILLIAMS_R_PERIOD
     
     return df_result
 
-def calculate_atr(df: pd.DataFrame, period: int = ATR_PERIOD) -> pd.DataFrame:
+def atr(df: pd.DataFrame, period: int = ATR_PERIOD) -> pd.DataFrame:
     """
     Calculates the Average True Range (ATR) indicator and adds it to the DataFrame.
 
@@ -183,7 +183,7 @@ def calculate_atr(df: pd.DataFrame, period: int = ATR_PERIOD) -> pd.DataFrame:
 
 ######################### Custom indicators #########################
 
-def get_adr(df, symbol_info, period=ADR_PERIOD):
+def adr(df, symbol_info, period=ADR_PERIOD):
     """
     Calculate the Average Daily Range (ADR) and the current daily range percentage.
 
@@ -195,23 +195,45 @@ def get_adr(df, symbol_info, period=ADR_PERIOD):
     tuple: current ADR and current daily range percentage
     """
     logger.info(f"Calculating ADR for {period} period")
-    # Calculate daily ranges
-    df['daily_range'] = (df['High'] - df['Low']) / symbol_info.trade_tick_size / 10
+    
+    # Check if symbol_info is valid
+    if symbol_info is None:
+        logger.error("symbol_info is None, cannot calculate ADR")
+        return None
+    
+    # Check if required attributes exist
+    if not hasattr(symbol_info, 'trade_tick_size') or symbol_info.trade_tick_size is None:
+        logger.error(f"symbol_info missing trade_tick_size attribute: {symbol_info}")
+        return None
+    
+    # Check if DataFrame has required columns
+    required_columns = ['High', 'Low']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        logger.error(f"DataFrame missing required columns for ADR calculation: {missing_columns}")
+        return None
+    
+    try:
+        # Calculate daily ranges
+        df['daily_range'] = (df['High'] - df['Low']) / symbol_info.trade_tick_size / 10
 
-    # Calculate ADR
-    df['ADR'] = df['daily_range'].rolling(window=period).mean()
+        # Calculate ADR
+        df['ADR'] = df['daily_range'].rolling(window=period).mean()
 
-    # Shift the ADR by one period to make today's ADR based on the previous value
-    df['ADR'] = df['ADR'].shift(1)
+        # Shift the ADR by one period to make today's ADR based on the previous value
+        df['ADR'] = df['ADR'].shift(1)
 
-    # Stop Loss Level
-    df['SL'] = round(df['ADR'] / STOP_ADR_RATIO)
+        # Stop Loss Level
+        df['SL'] = round(df['ADR'] / STOP_ADR_RATIO)
 
-    logger.info(f"Added 'daily_range', 'ADR', 'SL' columns to the DataFrame. Last value: {df['daily_range'].iloc[-1]}, {df['ADR'].iloc[-1]}, {df['SL'].iloc[-1]}")
+        logger.info(f"Added 'daily_range', 'ADR', 'SL' columns to the DataFrame. Last value: {df['daily_range'].iloc[-1]}, {df['ADR'].iloc[-1]}, {df['SL'].iloc[-1]}")
 
-    return df
+        return df
+    except Exception as e:
+        logger.error(f"Error calculating ADR: {e}")
+        return None
 
-def calculate_currency_index(base_currency: str, ohlc_data: dict[str, pd.DataFrame]) -> pd.DataFrame:
+def currency_index(base_currency: str, ohlc_data: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """
     Calculates a synthetic currency index OHLC using the geometric mean of its constituent pairs.
 
@@ -300,7 +322,181 @@ def calculate_currency_index(base_currency: str, ohlc_data: dict[str, pd.DataFra
 
     return index_df
 
-def calculate_strength_meter_latest_price(ohlc_data: Dict[str, pd.DataFrame]) -> pd.Series:
+def currency_index_purple_trading(target_currency: str, ohlc_data_dict: dict) -> pd.DataFrame:
+    """
+    Calculates a currency index using a geometric mean approach.
+
+    This function simulates a currency index by calculating the geometric mean of its
+    exchange rate against a basket of other currencies. The formula is a standard
+    method for index calculation, as the specific "Purple Trading formula" is proprietary.
+
+    The function correctly handles both direct and indirect currency pairs.
+    For example, when calculating the USD index, EURUSD is used directly,
+    but USDJPY is inverted (1/USDJPY) to represent the value of USD in terms of JPY.
+
+    Args:
+        target_currency (str): The 3-letter code for the currency to be indexed (e.g., 'USD').
+        ohlc_data_dict (dict): A dictionary where keys are currency pair strings
+                               (e.g., 'EURUSD') and values are pandas DataFrames
+                               with 'Open', 'High', 'Low', 'Close' columns.
+
+    Returns:
+        pd.DataFrame: A pandas DataFrame with 'Open', 'High', 'Low', 'Close' columns
+                      for the calculated index, or an empty DataFrame if no relevant
+                      pairs are found.
+    """
+    target_currency = target_currency.upper()
+    relevant_pairs = {}
+    
+    # --- Step 1: Identify relevant pairs and determine if they need to be inverted ---
+    for pair, data in ohlc_data_dict.items():
+        pair = pair.upper()
+        if target_currency in pair:
+            # Ensure data is a DataFrame
+            if not isinstance(data, pd.DataFrame):
+                print(f"Warning: Skipping {pair} as its data is not a pandas DataFrame.")
+                continue
+
+            # Check for required columns
+            required_cols = {'Open', 'High', 'Low', 'Close'}
+            if not required_cols.issubset(data.columns):
+                print(f"Warning: Skipping {pair} as it's missing one or more required columns: {required_cols}.")
+                continue
+
+            # Determine if the pair needs to be inverted.
+            # If the target currency is the base currency (first 3 letters), we need to invert.
+            # e.g., for JPY index, USDJPY -> JPY/USD is 1/USDJPY
+            if pair.startswith(target_currency):
+                # Invert the OHLC data
+                # Note: For High/Low, the inverse relationship is swapped.
+                # The inverse of the high price is the new low, and vice versa.
+                inverted_data = pd.DataFrame({
+                    'Open': 1 / data['Open'],
+                    'High': 1 / data['Low'],
+                    'Low': 1 / data['High'],
+                    'Close': 1 / data['Close']
+                })
+                relevant_pairs[pair] = inverted_data
+            # If the target currency is the quote currency (last 3 letters), use as is.
+            # e.g., for USD index, EURUSD is used directly.
+            elif pair.endswith(target_currency):
+                relevant_pairs[pair] = data.copy()
+
+    if not relevant_pairs:
+        print(f"Error: No relevant currency pairs found for '{target_currency}' in the provided data.")
+        return pd.DataFrame()
+
+    # --- Step 2: Combine the data and calculate the geometric mean ---
+    # Concatenate all relevant 'Close' prices for calculation
+    combined_data = pd.concat([df['Close'].rename(pair) for pair, df in relevant_pairs.items()], axis=1)
+
+    # Calculate the geometric mean. The formula is (p1 * p2 * ... * pn)^(1/n)
+    # This is equivalent to exp( (log(p1) + log(p2) + ... + log(pn)) / n )
+    # Using logs helps with numerical stability.
+    num_pairs = len(relevant_pairs)
+    index_close = combined_data.apply(lambda x: x.prod()**(1/num_pairs), axis=1)
+
+    # --- Step 3: Calculate OHLC for the index ---
+    # This is a simplification. A true index OHLC would require tick-level data.
+    # Here, we approximate by taking the geometric mean of the respective OHLC values.
+    ohlc_frames = [df[['Open', 'High', 'Low', 'Close']].rename(columns=lambda c: f"{pair}_{c}") for pair, df in relevant_pairs.items()]
+    full_ohlc_data = pd.concat(ohlc_frames, axis=1)
+
+    def geometric_mean_row(row, ohlc_type):
+        prices = [row[f'{pair}_{ohlc_type}'] for pair in relevant_pairs.keys() if f'{pair}_{ohlc_type}' in row]
+        if not prices:
+            return None
+        # Filter out any non-positive values before calculation
+        prices = [p for p in prices if p > 0]
+        if not prices:
+            return None
+        
+        product = 1
+        for p in prices:
+            product *= p
+        return product ** (1 / len(prices))
+
+    index_df = pd.DataFrame(index=index_close.index)
+    index_df['Open'] = full_ohlc_data.apply(lambda row: geometric_mean_row(row, 'Open'), axis=1)
+    index_df['High'] = full_ohlc_data.apply(lambda row: geometric_mean_row(row, 'High'), axis=1)
+    index_df['Low'] = full_ohlc_data.apply(lambda row: geometric_mean_row(row, 'Low'), axis=1)
+    index_df['Close'] = index_close
+    
+    # --- Step 4: Normalize the index to a base value (e.g., 100 or 1000) for readability ---
+    # This makes it easier to track percentage changes from the start.
+    initial_value = index_df['Close'].iloc[0]
+    if pd.notna(initial_value) and initial_value > 0:
+        index_df = (index_df / initial_value) * 1000  # Start index at 1000
+
+    return index_df
+
+def geometric_mean_index(target_currency, ohlc_data_dict):
+    """
+    Calculates a currency index using the normalized geometric mean method from a dictionary of OHLC DataFrames.
+
+    This method computes an index by taking the geometric mean of a currency's performance
+    against a basket of its peers. It accepts a dictionary where keys are currency symbols
+    and values are their corresponding OHLC DataFrames. It returns a single DataFrame 
+    with the calculated OHLC values for the index.
+
+    Args:
+        target_currency (str): The 3-letter code for the currency to be indexed (e.g., 'USD').
+        ohlc_data_dict (dict): A dictionary where keys are currency pair strings (e.g., 'EURUSD')
+                               and values are pandas DataFrames with 'Open', 'High', 'Low', 'Close' columns.
+
+    Returns:
+        pd.DataFrame: A pandas DataFrame with 'Open', 'High', 'Low', 'Close' columns for the calculated index.
+    """
+    # Define the currency pairs for the target currency.
+    currency_baskets = {
+        'USD': ['EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD', 'USDCAD', 'USDCHF', 'USDJPY'],
+        'EUR': ['EURUSD', 'EURGBP', 'EURAUD', 'EURNZD', 'EURCAD', 'EURCHF', 'EURJPY'],
+    }
+
+    if target_currency not in currency_baskets:
+        raise ValueError(f"Basket for '{target_currency}' is not defined.")
+        
+    if not ohlc_data_dict:
+        return pd.DataFrame()
+        
+    sample_df = next(iter(ohlc_data_dict.values()))
+    index_ohlc_df = pd.DataFrame(index=sample_df.index)
+    pairs = currency_baskets[target_currency]
+
+    for ohlc_type in ['Open', 'High', 'Low', 'Close']:
+        # Create a single DataFrame for the current OHLC type
+        price_data_list = [df[ohlc_type].rename(symbol) for symbol, df in ohlc_data_dict.items() if ohlc_type in df.columns]
+        if not price_data_list:
+            print(f"Warning: No data found for OHLC type '{ohlc_type}'. Skipping.")
+            continue
+        price_data = pd.concat(price_data_list, axis=1)
+
+        normalized_prices = pd.DataFrame(index=price_data.index)
+
+        # Normalize each pair in the basket
+        for pair in pairs:
+            if pair not in price_data.columns:
+                print(f"Warning: Data for '{pair}' not found for {ohlc_type}. Skipping.")
+                continue
+
+            price_series = price_data[pair]
+
+            if target_currency == pair[3:]:
+                price_series = 1 / price_series
+
+            start_price = price_series.iloc[0]
+            normalized_prices[pair] = (price_series / start_price) * 100
+        
+        # Calculate geometric mean for the current OHLC type
+        # Drop any rows with NaN values to ensure gmean works correctly
+        valid_normalized_prices = normalized_prices.dropna()
+        index_values = gmean(valid_normalized_prices, axis=1)
+        
+        index_ohlc_df[ohlc_type] = pd.Series(index_values, index=valid_normalized_prices.index)
+
+    return index_ohlc_df
+
+def strength_meter_latest_price(ohlc_data: Dict[str, pd.DataFrame]) -> pd.Series:
     """
     Calculates a currency strength meter based on the most recent OHLC data.
 
@@ -378,7 +574,7 @@ def calculate_strength_meter_latest_price(ohlc_data: Dict[str, pd.DataFrame]) ->
     logger.info(f"Completed currency strength meter calculation. Last value: {strength_series.iloc[-1]}")
     return strength_series.sort_values(ascending=False)
 
-def calculate_strength_meter_average_price(ohlc_data: Dict[str, pd.DataFrame], lookback_period: int = 12) -> pd.Series:
+def strength_meter_average_price(ohlc_data: Dict[str, pd.DataFrame], lookback_period: int = 12) -> pd.Series:
     """
     Calculates currency strength based on the average performance over a lookback period.
 
@@ -419,7 +615,7 @@ def calculate_strength_meter_average_price(ohlc_data: Dict[str, pd.DataFrame], l
             continue
 
         # --- Step 2: Calculate the index for the sliced period ---
-        index_df = calculate_currency_index(currency, sliced_ohlc_data)
+        index_df = currency_index(currency, sliced_ohlc_data)
         if index_df.empty:
             logger.error(f"Error: Index DataFrame is empty for {currency}. Skipping.")
             strengths[currency] = np.nan
@@ -438,7 +634,7 @@ def calculate_strength_meter_average_price(ohlc_data: Dict[str, pd.DataFrame], l
     logger.info(f"Completed currency strength meter calculation. Last value: {strength_series.iloc[-1]}")
     return strength_series.sort_values(ascending=False)
 
-def calculate_currency_strength_rsi(symbols=FOREX_SYMBOLS, timeframe="M5", strength_lookback=12, strength_rsi=12):
+def currency_strength_rsi(symbols=FOREX_SYMBOLS, timeframe="M5", strength_lookback=12, strength_rsi=12):
     """
     Calculate currency strength based on RSI values for a set of currency pairs.
 
@@ -470,7 +666,7 @@ def calculate_currency_strength_rsi(symbols=FOREX_SYMBOLS, timeframe="M5", stren
         #df = fetch_data(symbol, timeframe, start_date="2025-02-01", end_date="2025-02-19")
         #df = fetch_data(symbol, timeframe, start_pos=140, end_pos=265)
         if df is not None and not df.empty:
-            df = calculate_rsi(df, strength_rsi, "Close")
+            df = rsi(df, strength_rsi, "Close")
             data[symbol] = df['rsi']
         else:
             logger.warning(f"No data fetched for {symbol}")
@@ -507,7 +703,7 @@ def calculate_currency_strength_rsi(symbols=FOREX_SYMBOLS, timeframe="M5", stren
 
     return strength_df
 
-def calculate_ltf_close_above_below_hft(ltf_df, htf_df):
+def ltf_close_above_below_hft(ltf_df, htf_df):
     """
     This function aligns lower time frame (LTF) data with higher time frame (HTF) data
     to analyze the close price movement above or below previous HTF extremes.
@@ -555,6 +751,7 @@ def calculate_ltf_close_above_below_hft(ltf_df, htf_df):
     df['swingline'] = pd.Series(df['swingline']).ffill()  # Fill NaN values with the previous value (propagate values where conditions are not met)
 
     return df
+
 ######################## Bundled Indicators in Classes ###############
 
 class CandlestickPatterns:
@@ -826,29 +1023,31 @@ class SmartMoneyConcepts:
     fair value gaps, and liquidity zones.
     """
 
-    def __init__(self, mt5_client: MT5Client, symbol: str, min_swing_length: int = 3, min_pip_range: int = 3):
+    def __init__(self, mt5_client, symbol: str, min_swing_length: int = 3, min_pip_range: int = 3):
         """
         Initialize the SmartMoneyConcepts analyzer.
         """
+        self.mt5_client = mt5_client
         self.symbol = symbol
         self.min_swing_length = min_swing_length
         self.min_pip_range = min_pip_range
+        self.symbol_info = None
         
         # Try to get pip value from MT5, with fallback
         try:
-            symbol_info = mt5_client.get_symbol_info(self.symbol)
-            if symbol_info is not None and 'point' in symbol_info and symbol_info['point']:
-                self.pip_value = symbol_info['point'] * 10  # Convert point to pip value
+            self.symbol_info = self.mt5_client.get_symbol_info(self.symbol)
+            if self.symbol_info and hasattr(self.symbol_info, 'point') and self.symbol_info.point:
+                self.pip_value = self.symbol_info.point * 10  # Convert point to pip value
             else:
                 # Fallback for currency indices or when symbol not found
                 self.pip_value = 0.0001  # Default pip value for most forex pairs
-                logger.warning(f"Symbol {symbol} not found in MT5, using default pip value")
+                logger.warning(f"Symbol {self.symbol} not found in MT5 or has no 'point' attribute, using default pip value")
         except Exception as e:
             # Fallback for any MT5 errors
             self.pip_value = 0.0001  # Default pip value for most forex pairs
-            logger.warning(f"Error getting symbol info for {symbol}: {e}, using default pip value")
+            logger.warning(f"Error getting symbol info for {self.symbol}: {e}, using default pip value")
         
-        logger.info(f"SMC initialized for {symbol} with pip value: {self.pip_value}")
+        logger.info(f"SMC initialized for {self.symbol} with pip value: {self.pip_value}")
 
     def calculate_swingline(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -1878,7 +2077,182 @@ class SmartMoneyConcepts:
         logger.info("Smart Money Concepts indicators calculation completed")
         return df
 
-#TODO: Write documentation for the indicators
+###################### Plotting #########################################################
+
+def plot_candlestick(df, title="Candlestick Chart", volume=False, filename="candlestick_chart.html"):
+    """
+    Plots a candlestick chart and auto-opens it in the browser as an HTML file.
+
+    Args:
+        df (pd.DataFrame): DataFrame with columns ['Open', 'High', 'Low', 'Close'] and a datetime index.
+        title (str): Title of the chart.
+        volume (bool): Whether to plot volume as a subplot (requires 'Volume' column).
+        filename (str): Output HTML file name.
+    """
+    import plotly.graph_objs as go
+    import plotly.offline as pyo
+    import webbrowser
+    import os
+
+    # Ensure required columns exist
+    required_cols = {'Open', 'High', 'Low', 'Close'}
+    if not required_cols.issubset(df.columns):
+        raise ValueError(f"DataFrame must contain columns: {required_cols}")
+
+    df_plot = df.copy()
+    if not isinstance(df_plot.index, (pd.DatetimeIndex, pd.TimedeltaIndex)):
+        df_plot.index = pd.to_datetime(df_plot.index)
+
+    data = [
+        go.Candlestick(
+            x=df_plot.index,
+            open=df_plot['Open'],
+            high=df_plot['High'],
+            low=df_plot['Low'],
+            close=df_plot['Close'],
+            name="Candles"
+        )
+    ]
+
+    if volume and 'Volume' in df_plot.columns:
+        data.append(
+            go.Bar(
+                x=df_plot.index,
+                y=df_plot['Volume'],
+                name="Volume",
+                marker=dict(color='rgba(128,128,128,0.3)'),
+                yaxis='y2'
+            )
+        )
+        layout = go.Layout(
+            title=title,
+            xaxis=dict(title="Date"),
+            yaxis=dict(title="Price"),
+            yaxis2=dict(
+                title="Volume",
+                overlaying='y',
+                side='right',
+                showgrid=False
+            ),
+            legend=dict(orientation="h"),
+            margin=dict(l=40, r=40, t=40, b=40)
+        )
+    else:
+        layout = go.Layout(
+            title=title,
+            xaxis=dict(title="Date"),
+            yaxis=dict(title="Price"),
+            margin=dict(l=40, r=40, t=40, b=40)
+        )
+
+    fig = go.Figure(data=data, layout=layout)
+    pyo.plot(fig, filename=filename, auto_open=False)
+    # Open in default browser
+    abs_path = os.path.abspath(filename)
+    webbrowser.open(f"file://{abs_path}")
+
+
+
+####################### UTILS #########################################################
+
+def resample_data(df, timeframe='D', ohlc_dict=None, volume_col='Volume'):
+    """
+    Resample OHLCV dataframe to a new timeframe.
+
+    Args:
+        df (pd.DataFrame): DataFrame with at least ['Open', 'High', 'Low', 'Close'] columns.
+        timeframe (str): Pandas resample rule (e.g., 'D' for daily, 'H' for hourly).
+        ohlc_dict (dict, optional): Custom aggregation for OHLC columns.
+        volume_col (str): Name of the volume column, if present.
+
+    Returns:
+        pd.DataFrame: Resampled DataFrame.
+    """
+    if ohlc_dict is None:
+        ohlc_dict = {
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last'
+        }
+        if volume_col in df.columns:
+            ohlc_dict[volume_col] = 'sum'
+
+    resampled = df.resample(timeframe).agg(ohlc_dict)
+    # Drop rows where 'Open' is NaN (no data in that period)
+    resampled = resampled.dropna(subset=['Open'])
+    return resampled
+
+
+
+
+
+
+###################### MAIN (For Testing Indicators)#########################################################
+
+if __name__ == "__main__":
+
+    # Fetching data
+    start_date = datetime(2025, 1, 1)
+    end_date = datetime(2025, 6, 30)
+    start_date_core = start_date - timedelta(days=15) # Remove 15 days for start date for df_core
+
+    mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=FOREX_SYMBOLS, broker=BROKER)
+
+    symbol = "EURUSD"
+    symbol_info = mt5_client.get_symbol_info(symbol)
+
+    data = mt5_client.fetch_data(symbol, "M5", start_date=start_date, end_date=end_date)
+
+    # sub-df for plotting
+    #df_plot = data[:100]
+    #plot_candlestick(df_plot, title="EURUSD M5")
+
+    # Resample to Daily
+    # df_plot = resample_data(data, timeframe='D')
+    # print(df_plot)
+    # plot_candlestick(df_plot, title="EURUSD D")
+
+    import bt
+    #price_data = bt.get("aapl", start=start_date, end=end_date)
+    #print(price_data)
+
+    data = ma(data, period=10, ma_type="EMA", column='Close')
+    data = ma(data, period=20, ma_type="EMA", column='Close')
+    data["signal"] = 0
+
+    data["signal"][data.ema_10 > data.ema_20] = 1
+    data["signal"][data.ema_10 < data.ema_20] = -1
+    print(data)
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -413,7 +413,7 @@ if __name__ == '__main__':
     print(f"Original DataFrame head:\n{df.head()}")
     
     # Initialize SMC
-    smc = SmartMoneyConcepts(symbol, min_swing_length=3, min_pip_range=2)
+    smc = SmartMoneyConcepts(client, symbol, min_swing_length=3, min_pip_range=2)
     # Run SMC analysis
     df_smc = smc.run_smc(df)
 
