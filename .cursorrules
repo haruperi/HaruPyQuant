@@ -98,6 +98,22 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
 
 ## User Specified Lessons
 
+- For method signature mismatches in strategy classes:
+  - Always check the method signature in the base class (BaseStrategy) before calling methods
+  - The get_trade_parameters method takes 4 parameters: (self, df, df_core, action, symbol_info)
+  - Do not pass mt5_client as a parameter to get_trade_parameters - it's already available as self.mt5_client
+  - Verify method calls match the exact signature to avoid "takes X positional arguments but Y were given" errors
+  - When inheriting from BaseStrategy, ensure all method calls follow the base class signature
+- For Unicode encoding issues on Windows:
+  - Windows console (cp1252 encoding) cannot handle Unicode emoji characters
+  - Remove emoji characters from notification template titles to avoid UnicodeEncodeError
+  - Use custom UnicodeStreamHandler for Windows to handle Unicode characters properly
+  - Test notification templates on Windows to ensure compatibility
+- For NotificationResult attribute access:
+  - Always use `result.error_message` instead of `result.error` when accessing error information
+  - The NotificationResult class has `error_message` attribute, not `error` attribute
+  - Check the NotificationResult class definition for correct attribute names
+  - Common attributes: success, message_id, error_message, timestamp, retry_count, delivery_time_ms
 - You have a python venv in ./venv. Use it.
 - Include info useful for debugging in the program output.
 - Read the file before you try to edit it.
@@ -129,6 +145,12 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
   4. Use late imports inside functions when necessary
   5. Use dependency injection to pass higher-level components to lower-level ones
   6. Test imports thoroughly before committing code
+- For pandas_ta compatibility issues:
+  - pandas_ta has compatibility problems with newer numpy versions (NaN vs nan)
+  - Use local indicator functions from app/strategy/indicators.py instead of pandas_ta
+  - Local indicators provide better control and avoid external dependency issues
+  - When running Python modules, use `venv\Scripts\python -m app.module.submodule` instead of `python -m app.module.submodule` to ensure virtual environment is used
+  - Always check if dependencies are properly installed in the virtual environment before running modules
 
 ## Cursor learned
 
@@ -202,12 +224,30 @@ If needed, you can further use the `web_scraper.py` file to scrape the web page 
    - Run Python modules from project root using `python -m app.module.submodule` instead of `python path/to/file.py` to avoid import issues
    - When using real MT5 data for testing, be aware of data availability limits (e.g., EURUSD history from 2015)
    - Handle DataFrame index properly when MT5 returns data with timestamp as index
+- Use consistent timezone handling: `datetime.now()` for local time and `datetime.now(timezone.utc)` for UTC time, but be consistent within the same application context
+- For notification messages, ensure both the message header timestamp and body timestamps use the same timezone to avoid confusion
+- When calling MT5Client.fetch_data(), always pass datetime objects for start_date and end_date parameters, not strings:
+  - Use `datetime(2025, 1, 1, tzinfo=timezone.utc)` instead of `"2025-01-01"`
+  - Import datetime and timezone: `from datetime import datetime, timezone`
+  - Always use UTC timezone for consistency with MT5 data
+- For dual MT5 client setups: Use broker 1 for main trading data and broker 3 for index data when different brokers have access to different symbol types
 - When working with MT5 tick data in streaming:
   - MT5 returns tick data as named tuples, not dictionaries
   - Use `tick._asdict()` to convert to dictionary format
   - Always validate required fields before processing
   - Handle both named tuple and dictionary formats for compatibility
   - Use type ignore comments for type checker issues with MT5 data structures
+  - Always pass a symbol parameter to `get_tick()` method (e.g., `get_tick("EURUSD")`)
+  - Access tick data as dictionary keys (e.g., `tick['time']`) after conversion
+- For MT5 symbol initialization:
+  - Always check if symbols are already visible before attempting to add them
+  - Verify symbol availability from broker before attempting to add to market watch
+  - Use proper symbol mapping for different brokers (e.g., _ecn suffix for broker 3)
+  - Implement retry mechanism for failed symbol additions
+  - Provide detailed logging for debugging symbol initialization issues
+  - Check both availability and visibility status separately
+  - Use `mt5.symbol_select()` to add symbols to market watch
+  - Verify symbol visibility after addition using `symbol_info.visible`
 
 2. Environment Variable Handling:
    - Strip comments from environment variable values before using them
@@ -365,52 +405,672 @@ Test files must follow these naming conventions:
 
 # Scratchpad
 
-## Current Task: Notification Service Implementation
+## Current Task: Refactor Strategy Methods - COMPLETED ✅
 
 ### Task Description:
-Implement a comprehensive notification service with email, Telegram, and SMS capabilities for trading alerts and system notifications.
+Refactor `get_entry_signal()` and `get_exit_signal()` methods to take `data` as argument instead of `time`, and return entry/exit signals and times directly.
 
 ### Progress:
-- [X] Create notification service base classes
-- [X] Implement email notification service
-- [X] Implement Telegram bot notification service
-- [X] Implement SMS notification service (optional)
-- [X] Create notification manager for unified interface
-- [X] Add configuration management for notification settings
-- [X] Create notification templates for different alert types
-- [X] Implement rate limiting and retry logic
-- [X] Add comprehensive logging and error handling
-- [X] Create usage examples and documentation
-- [X] Update configuration to use INI file format
-- [X] Fix HTML parsing issues in Telegram service
-- [X] Test and validate notification service
+- [X] Refactor `get_entry_signal()` to take DataFrame as argument
+- [X] Refactor `get_exit_signal()` to take DataFrame as argument
+- [X] Remove dependency on `self.data` and `time` parameter
+- [X] Use `data.index[-1]` for current timestamp
+- [X] Use `data.iloc[-1]` for current row data
+- [X] Update method signatures and docstrings
 
 ### Implementation Plan:
-1. ✅ Create notification service base classes and interfaces
-2. ✅ Implement email notification using SMTP
-3. ✅ Implement Telegram bot integration
-4. ✅ Implement SMS notification (Twilio integration)
-5. ✅ Create notification manager for unified interface
-6. ✅ Add configuration management and templates
-7. ✅ Implement rate limiting and retry mechanisms
-8. ✅ Add comprehensive error handling and logging
-9. ✅ Create usage examples and documentation
-10. ✅ Update configuration to use INI file format (consistent with project)
-11. ✅ Fix HTML parsing issues in Telegram service
-12. ✅ Test and validate notification service functionality
-13. [ ] Add tests for notification services
+1. ✅ Change `get_entry_signal(time)` to `get_entry_signal(data: pd.DataFrame)`
+2. ✅ Change `get_exit_signal(time)` to `get_exit_signal(data: pd.DataFrame)`
+3. ✅ Replace `self.data.loc[:time]` with `data`
+4. ✅ Replace `time` parameter with `data.index[-1]` for timestamps
+5. ✅ Update all data access to use `data.iloc[-1]` for current row
+6. ✅ Update docstrings and type hints
 
-### Files Created:
-- ✅ `app/notifications/__init__.py` - Notification module init
-- ✅ `app/notifications/base.py` - Base notification classes
-- ✅ `app/notifications/email.py` - Email notification service
-- ✅ `app/notifications/telegram.py` - Telegram bot service
-- ✅ `app/notifications/sms.py` - SMS notification service
-- ✅ `app/notifications/manager.py` - Notification manager
-- ✅ `app/notifications/templates.py` - Notification templates
-- ✅ `app/notifications/config.py` - Configuration management
-- ✅ `docs/notifications.md` - Documentation
-- ✅ `scripts/notification_example.py` - Usage examples
+### Files Updated:
+- ✅ `app/strategy/base.py` - Refactored both methods to use DataFrame argument
+
+### Key Improvements Made:
+- ✅ **Better API Design**: Methods now take DataFrame instead of time parameter
+- ✅ **Reduced Dependencies**: No longer depends on `self.data` instance variable
+- ✅ **More Flexible**: Can work with any DataFrame passed as argument
+- ✅ **Cleaner Interface**: Direct access to current row data via `data.iloc[-1]`
+- ✅ **Better Type Safety**: Proper type hints for DataFrame parameter
+- ✅ **Consistent Pattern**: Both methods follow same parameter pattern
+
+### Method Signatures:
+```python
+def get_entry_signal(self, data: pd.DataFrame) -> tuple[int, Optional[datetime]]:
+    """
+    :param data: DataFrame with market data including Signal column
+    :return: Entry signal of the current row and entry time
+    """
+
+def get_exit_signal(self, data: pd.DataFrame) -> tuple[float, Optional[datetime]]:
+    """
+    :param data: DataFrame with market data including High, Low, High_time, Low_time columns
+    :return: P&L of the position IF we close it and exit time
+    """
+```
+
+### Usage Example:
+```python
+# Before (old way)
+entry_signal, entry_time = strategy.get_entry_signal(current_time)
+exit_signal, exit_time = strategy.get_exit_signal(current_time)
+
+# After (new way)
+entry_signal, entry_time = strategy.get_entry_signal(current_data)
+exit_signal, exit_time = strategy.get_exit_signal(current_data)
+```
+
+### Benefits:
+- ✅ **More Flexible**: Can work with any DataFrame, not just instance data
+- ✅ **Better Testing**: Easier to test with mock DataFrames
+- ✅ **Cleaner Code**: No dependency on instance variables
+- ✅ **Future-Proof**: Better separation of concerns
+- ✅ **Consistent API**: Both methods follow same pattern
+
+### Previous Task: Add Type, MAE, and MFE Columns to HTML Plot Trades Table - COMPLETED ✅
+
+### Task Description:
+Add Type, MAE, and MFE columns to the trades table in the HTML plot for better trade analysis visualization.
+
+### Progress:
+- [X] Analyze the plotting code structure in _plotting.py
+- [X] Identify the _plot_trades_section function
+- [X] Add Type column to the trades table
+- [X] Add MAE column to the trades table (formatted in pips)
+- [X] Add MFE column to the trades table (formatted in pips)
+- [X] Test the functionality with sample data
+
+### Implementation Plan:
+1. ✅ Analyze the plotting code structure in _plotting.py
+2. ✅ Identify the _plot_trades_section function
+3. ✅ Add Type column to the trades table
+4. ✅ Add MAE column to the trades table (formatted in pips)
+5. ✅ Add MFE column to the trades table (formatted in pips)
+6. ✅ Document the functionality
+
+### Files Updated:
+- ✅ `app/backtesting/_plotting.py` - Added Type, MAE, and MFE columns to trades table
+
+### Key Features Added:
+- ✅ Type column showing "Buy" or "Sell" in the HTML plot
+- ✅ MAE column showing Maximum Adverse Excursion in pips
+- ✅ MFE column showing Maximum Favorable Excursion in pips
+- ✅ Proper formatting for MAE and MFE (0.0 decimal places)
+- ✅ Integration with existing trades table structure
+- ✅ Sortable columns for easy analysis
+
+### HTML Plot Trades Table Columns:
+1. Entry Time
+2. Exit Time
+3. Entry Price
+4. Exit Price
+5. Size
+6. **Type** (new)
+7. Return %
+8. Profit/Loss
+9. **MAE (pips)** (new)
+10. **MFE (pips)** (new)
+11. Duration
+
+### Usage:
+```python
+from backtesting import Backtest
+from app.strategy.simple_scalping import SimpleScalpingStrategy
+
+# Run backtest
+bt = Backtest(data, SimpleScalpingStrategy, cash=10000, commission=.002)
+stats = bt.run()
+
+# Plot with enhanced trades table
+bt.plot(plot_trade_table=True)
+```
+
+### Benefits:
+- ✅ **Visual Trade Analysis**: See trade direction, MAE, and MFE directly in the plot
+- ✅ **Quick Filtering**: Sort by Type, MAE, or MFE for analysis
+- ✅ **Risk Assessment**: Identify trades with high MAE or low MFE
+- ✅ **Direction Analysis**: Compare Buy vs Sell performance visually
+- ✅ **Professional Output**: Clean, formatted table in HTML plots
+
+### Previous Task: Add Trade Type Column to Trades DataFrame - COMPLETED ✅
+
+### Task Description:
+Add a "Type" column to the trades DataFrame that shows "Buy" for long trades and "Sell" for short trades, making it easier to analyze trade direction.
+
+### Progress:
+- [X] Analyze how trade direction is determined from trade size
+- [X] Add Type column calculation to _stats.py
+- [X] Update rearrange_trades_columns function to include Type column
+- [X] Update example scripts to include Type column
+- [X] Test the functionality with sample data
+
+### Implementation Plan:
+1. ✅ Analyze how trade direction is determined from trade size
+2. ✅ Add Type column calculation to _stats.py
+3. ✅ Update rearrange_trades_columns function to include Type column
+4. ✅ Update example scripts to include Type column
+5. ✅ Document the functionality
+
+### Files Updated:
+- ✅ `app/backtesting/_stats.py` - Added Type column calculation
+- ✅ `app/util/helper.py` - Updated rearrange_trades_columns function
+- ✅ `scripts/rearrange_trades_example.py` - Updated with Type column
+- ✅ `scripts/mae_mfe_example.py` - Updated with Type column
+
+### Key Features Added:
+- ✅ Type column showing "Buy" for long trades (positive size)
+- ✅ Type column showing "Sell" for short trades (negative size)
+- ✅ Easy filtering and analysis by trade direction
+- ✅ Integration with existing trades DataFrame structure
+- ✅ Updated column order to include Type
+
+### Updated Column Order:
+1. EntryTime
+2. EntryPrice
+3. ExitTime
+4. ExitPrice
+5. Size
+6. **Type** (new)
+7. SL
+8. TP
+9. PnLPips
+10. PnL
+11. ReturnPct
+12. Commission
+13. MAE (in pips)
+14. MFE (in pips)
+15. Duration
+16. EntryBar
+17. ExitBar
+18. Tag
+
+### Usage:
+```python
+from app.util.helper import rearrange_trades_columns
+
+# After running backtest
+stats = bt.run()
+rearranged_trades = rearrange_trades_columns(stats._trades)
+
+# Filter by trade type
+buy_trades = rearranged_trades[rearranged_trades['Type'] == 'Buy']
+sell_trades = rearranged_trades[rearranged_trades['Type'] == 'Sell']
+
+# Analyze performance by direction
+print(f"Buy trades: {len(buy_trades)}")
+print(f"Sell trades: {len(sell_trades)}")
+```
+
+### Trade Type Analysis:
+- **Buy Trades**: Long positions (positive size)
+- **Sell Trades**: Short positions (negative size)
+- **Direction Analysis**: Compare performance between long and short trades
+- **Strategy Optimization**: Identify which direction performs better
+
+### Previous Task: Add Commission Data to Trades DataFrame - COMPLETED ✅
+
+### Task Description:
+Add commission data to the trades DataFrame and include it in the column rearrangement. Commission shows the trading costs for each individual trade.
+
+### Progress:
+- [X] Analyze how commissions are stored in the Trade class
+- [X] Add commission data collection to _stats.py
+- [X] Update rearrange_trades_columns function to include Commission column
+- [X] Update example scripts to include commission data
+- [X] Test the functionality with sample data
+
+### Implementation Plan:
+1. ✅ Analyze how commissions are stored in Trade objects
+2. ✅ Add commission data collection to _stats.py
+3. ✅ Update rearrange_trades_columns function to include Commission column
+4. ✅ Update example scripts to include commission data
+5. ✅ Document the functionality
+
+### Files Updated:
+- ✅ `app/backtesting/_stats.py` - Added commission data collection
+- ✅ `app/util/helper.py` - Updated rearrange_trades_columns function
+- ✅ `scripts/rearrange_trades_example.py` - Updated with Commission column
+- ✅ `scripts/mae_mfe_example.py` - Updated with commission data
+
+### Key Features Added:
+- ✅ Commission data for each individual trade
+- ✅ Commission values in dollars (consistent with broker calculations)
+- ✅ Integration with existing trades DataFrame structure
+- ✅ Updated column order to include Commission
+
+### Updated Column Order:
+1. EntryTime
+2. EntryPrice
+3. ExitTime
+4. ExitPrice
+5. Size
+6. SL
+7. TP
+8. PnLPips
+9. PnL
+10. ReturnPct
+11. **Commission** (new)
+12. MAE (in pips)
+13. MFE (in pips)
+14. Duration
+15. EntryBar
+16. ExitBar
+17. Tag
+
+### Usage:
+```python
+from app.util.helper import rearrange_trades_columns
+
+# After running backtest
+stats = bt.run()
+rearranged_trades = rearrange_trades_columns(stats._trades)
+print(rearranged_trades[['Commission', 'PnL', 'PnLPips']])  # View costs and profits
+```
+
+### Commission Analysis:
+- **Individual Trade Costs**: See commission for each trade
+- **Net Profit Calculation**: PnL - Commission = Net Profit
+- **Cost Analysis**: Compare commission costs across different trade sizes
+- **Profitability Assessment**: Account for trading costs in strategy evaluation
+
+### Previous Task: Add MAE and MFE Calculations to Trades DataFrame - COMPLETED ✅
+
+### Task Description:
+Add MAE (Maximum Adverse Excursion) and MFE (Maximum Favorable Excursion) calculations to the trades DataFrame and include them in the column rearrangement. Updated to calculate in pips instead of percentages.
+
+### Progress:
+- [X] Analyze the backtesting framework structure
+- [X] Implement MAE and MFE calculations in _stats.py (in pips)
+- [X] Update rearrange_trades_columns function to include new columns
+- [X] Create comprehensive example scripts
+- [X] Test the functionality with sample data
+
+### Implementation Plan:
+1. ✅ Analyze how trades DataFrame is created in backtesting framework
+2. ✅ Add MAE and MFE calculations to _stats.py (in pips)
+3. ✅ Update rearrange_trades_columns function to include new columns
+4. ✅ Create example scripts for demonstration
+5. ✅ Document the functionality
+
+### Files Updated:
+- ✅ `app/backtesting/_stats.py` - Added MAE and MFE calculations in pips
+- ✅ `app/util/helper.py` - Updated rearrange_trades_columns function
+- ✅ `scripts/rearrange_trades_example.py` - Updated with MAE/MFE columns in pips
+- ✅ `scripts/mae_mfe_example.py` - Created comprehensive example with pips calculation
+
+### Key Features Added:
+- ✅ MAE (Maximum Adverse Excursion) calculation for each trade in pips
+- ✅ MFE (Maximum Favorable Excursion) calculation for each trade in pips
+- ✅ Proper handling of long vs short trades
+- ✅ Pip-based calculations for easy forex interpretation
+- ✅ Integration with existing trades DataFrame structure
+- ✅ Updated column order to include MAE and MFE
+
+### MAE/MFE Calculation Logic (in pips):
+- **Long Trades**: 
+  - MAE = (Lowest Low - Entry Price) × 10000 pips
+  - MFE = (Highest High - Entry Price) × 10000 pips
+- **Short Trades**:
+  - MAE = (Entry Price - Highest High) × 10000 pips
+  - MFE = (Entry Price - Lowest Low) × 10000 pips
+
+### Updated Column Order:
+1. EntryTime
+2. EntryPrice
+3. ExitTime
+4. ExitPrice
+5. Size
+6. SL
+7. TP
+8. PnLPips
+9. PnL
+10. ReturnPct
+11. Duration
+12. EntryBar
+13. ExitBar
+14. Tag
+
+### Previous Task: Fix BackTradeStrategy Initialization - COMPLETED ✅
+
+### Task Description:
+Fix the TypeError where `BackTradeStrategy.__init__()` was getting multiple values for argument 'parameters' because the Backtest framework expects the `init` method to take no arguments.
+
+### Progress:
+- [X] Identify the initialization error in backtrader.py
+- [X] Fix the BackTradeStrategy class to use class variables instead of instance variables
+- [X] Update the init method to be compatible with the Backtest framework
+- [X] Fix position sizing calculation to work with Backtest framework requirements
+- [X] Test the fix to ensure backtrader script runs successfully
+
+### Implementation Plan:
+1. ✅ Analyze the error message and identify the root cause (Backtest framework compatibility issue)
+2. ✅ Convert instance variables to class variables for MT5 client and symbol info
+3. ✅ Update init method signature to match Backtest framework expectations
+4. ✅ Fix position sizing calculation to use appropriate fractions of equity
+5. ✅ Test the fix to ensure successful backtest execution
+
+### Files Updated:
+- ✅ `app/strategy/backtrader.py` - Fixed BackTradeStrategy class structure
+- ✅ `app/strategy/backtrader.py` - Updated init method signature
+- ✅ `app/strategy/backtrader.py` - Fixed position sizing calculation
+
+### Key Fixes Made:
+- ✅ Changed from instance variables to class variables for MT5 client and symbol info
+- ✅ Updated init method to take no arguments (compatible with Backtest framework)
+- ✅ Fixed position sizing to use appropriate fractions of equity (1% cap)
+- ✅ Added debugging output to verify initialization
+
+### Issues Fixed:
+- ✅ TypeError: BackTradeStrategy.__init__() got multiple values for argument 'parameters'
+- ✅ AssertionError: size must be a positive fraction of equity
+- ✅ Insufficient margin warnings due to oversized positions
+- ✅ Backtest framework compatibility issues
+
+### Previous Task: Fix Look-Ahead Bias Issue - IN PROGRESS 🔄
+
+### Task Description:
+Fix the look-ahead bias error where the risk manager is detecting future data timestamps. The error shows that the last bar time (2025-07-29 00:00:00+00:00) is in the future compared to the current time (2025-07-28 22:36:30+00:00).
+
+### Progress:
+- [X] Identify the look-ahead bias error in risk_manager.py
+- [X] Fix the D1 timeframe check to use proper datetime comparison instead of string comparison
+- [X] Increase buffer time from 5 minutes to 30 minutes to handle timezone differences
+- [X] Add better debugging logs to understand the timezone issue
+- [X] Improve D1 data filtering to remove future bars (next day)
+- [ ] Test the fix to ensure look-ahead bias is resolved
+
+### Implementation Plan:
+1. ✅ Analyze the error message and identify the root cause (timezone/time difference issue)
+2. ✅ Fix the D1 timeframe check to use proper datetime comparison
+3. ✅ Increase buffer time to handle server timezone differences
+4. ✅ Add debugging logs to understand the timezone issue
+5. ✅ Improve D1 data filtering to handle future bars
+6. [ ] Test the fix to ensure look-ahead bias is resolved
+
+### Files Updated:
+- ✅ `app/trading/risk_manager.py` - Fixed D1 timeframe check and increased buffer time
+- ✅ `app/trading/risk_manager.py` - Added debugging logs for timezone analysis
+- ✅ `app/trading/risk_manager.py` - Improved D1 data filtering to handle future bars
+
+### Key Fixes Made:
+- ✅ Changed string comparison to proper datetime comparison for D1 timeframe
+- ✅ Increased buffer time from 5 minutes to 30 minutes for timezone differences
+- ✅ Added debugging logs to track current time vs bar time
+- ✅ Improved D1 filtering to remove bars from current or future dates
+- ✅ Added time difference logging for better error analysis
+
+### Issues Fixed:
+- ✅ Unreliable string comparison for D1 timeframe check
+- ✅ Insufficient buffer time for server timezone differences
+- ✅ Missing debugging information for timezone analysis
+- ✅ D1 data filtering not handling future bars properly
+
+### Previous Task: Fix Import Error - COMPLETED ✅
+
+### Task Description:
+Fix the ImportError where `get_adr` cannot be imported from `app.strategy.indicators` because the function is actually named `adr`.
+
+### Progress:
+- [X] Identify the import error in risk_manager.py
+- [X] Fix the import statement in risk_manager.py to use 'adr' instead of 'get_adr'
+- [X] Fix the function call in risk_manager.py to use 'adr' instead of 'get_adr'
+- [X] Fix the import statement in swing_trend_momentum.py to use 'adr' instead of 'get_adr'
+- [X] Fix the function call in swing_trend_momentum.py to use 'adr' instead of 'get_adr'
+- [X] Add import statement in base.py for 'adr' from indicators module
+- [X] Fix the function call in base.py to use 'adr' instead of 'get_adr'
+
+### Implementation Plan:
+1. ✅ Analyze the error message and identify the root cause (function name mismatch)
+2. ✅ Fix all import statements to use the correct function name 'adr'
+3. ✅ Fix all function calls to use the correct function name 'adr'
+4. ✅ Add missing import statements where needed
+5. ✅ Test the fix to ensure circular import is resolved
+
+### Files Updated:
+- ✅ `app/trading/risk_manager.py` - Fixed import and function call
+- ✅ `app/strategy/swing_trend_momentum.py` - Fixed function call
+- ✅ `app/strategy/base.py` - Added import and fixed function call
+
+### Key Fixes Made:
+- ✅ Changed `from app.strategy.indicators import get_adr` to `from app.strategy.indicators import adr`
+- ✅ Changed all `get_adr()` function calls to `adr()`
+- ✅ Added missing import statement in base.py
+- ✅ Resolved circular import dependency issue
+
+### Issues Fixed:
+- ✅ ImportError: cannot import name 'get_adr' from 'app.strategy.indicators'
+- ✅ Function name mismatch between import and actual function name
+- ✅ Missing import statements in some files
+- ✅ Circular import dependency causing module loading failures
+
+### Previous Task: EMA Signal Integration - COMPLETED ✅
+
+### Task Description:
+Merge the EMA signal logic from the notebook into the get_signals function in simple_scalping.py to add EMA-based trading signals.
+
+### Progress:
+- [X] Analyze the EMA signal logic from the notebook
+- [X] Add backcandles parameter to strategy parameters
+- [X] Implement EMA signal calculation function
+- [X] Integrate EMA signal logic into get_signals function
+- [X] Optimize performance for large datasets
+- [X] Test the integration with signals_df module
+- [X] Fix backtesting framework SL/TP validation issues
+- [X] Implement complete backtesting functionality
+- [X] Update documentation
+
+### Implementation Plan:
+1. ✅ Analyze the notebook EMA signal logic and understand the requirements
+2. ✅ Add backcandles parameter to default_params
+3. ✅ Create ema_signal method for calculating individual signals
+4. ✅ Integrate EMA signal calculation into get_signals function
+5. ✅ Optimize performance by avoiding unnecessary DataFrame copies
+6. ✅ Test the integration with real data
+7. ✅ Fix backtesting framework order validation issues
+8. ✅ Implement complete backtesting with proper SL/TP calculations
+9. ✅ Update documentation
+
+### Files Updated:
+- ✅ `app/strategy/simple_scalping.py` - Added EMA signal logic, backcandles parameter, and complete backtesting functionality
+- ✅ `.cursorrules` - Updated with current task progress
+
+### Key Features Added:
+- ✅ EMA signal calculation based on fast vs slow EMA relationship
+- ✅ Total signal calculation combining EMA signals with Bollinger Bands conditions
+- ✅ Position markers for signal plotting (pointpos column)
+- ✅ Configurable backcandles parameter (default: 7)
+- ✅ Bullish signal (1) when fast EMA < slow EMA for all backcandles AND close >= upper Bollinger Band
+- ✅ Bearish signal (2) when fast EMA > slow EMA for all backcandles AND close <= lower Bollinger Band
+- ✅ No signal (0) when conditions are not met
+- ✅ Optimized performance for large datasets (36,540 rows processed successfully)
+- ✅ Both EMASignal and TotalSignal columns for analysis
+- ✅ Position markers for chart visualization (High+1e-3 for bullish, Low-1e-3 for bearish)
+- ✅ Complete backtesting functionality with proper SL/TP calculations
+- ✅ Minimum distance validation to ensure proper order placement
+- ✅ Market order execution with stop loss and take profit levels
+
+### Issues Fixed:
+- ✅ Column name mismatch between calculate_ma output and EMA signal expectations
+- ✅ Performance issues with large DataFrame processing
+- ✅ Integration of notebook logic into production strategy class
+- ✅ Combined signal logic with proper Bollinger Bands integration
+- ✅ Added plotting functionality for signal visualization
+- ✅ Backtesting framework SL/TP validation errors
+- ✅ Order placement issues with small ATR values
+- ✅ Signal logic reversal (buy/sell signals were inverted)
+- ✅ Minimum distance requirements for proper order validation
+
+### Previous Task: pandas_ta Compatibility Fix
+
+### Task Description:
+Fix the pandas_ta import error in simple_scalping.py that was causing compatibility issues with newer numpy versions.
+
+### Progress:
+- [X] Identify the pandas_ta import error in simple_scalping.py
+- [X] Add pandas_ta to requirements.txt with compatible version
+- [X] Replace pandas_ta usage with local indicator functions
+- [X] Test the fix with signals_df module
+- [X] Update documentation and lessons learned
+
+### Implementation Plan:
+1. ✅ Analyze the error message and identify the root cause (pandas_ta NaN import issue)
+2. ✅ Add pandas_ta to requirements.txt with compatible version
+3. ✅ Replace pandas_ta functions with local indicator functions from indicators.py
+4. ✅ Test the fix by running signals_df module
+5. ✅ Update documentation and lessons learned
+
+### Files Updated:
+- ✅ `requirements.txt` - Added pandas_ta dependency
+- ✅ `app/strategy/simple_scalping.py` - Replaced pandas_ta with local indicators
+- ✅ `.cursorrules` - Updated lessons with pandas_ta compatibility guidelines
+
+### Key Fixes Made:
+- ✅ Replaced `ta.ema()` with `calculate_ma()` function
+- ✅ Replaced `ta.rsi()` with `calculate_rsi()` function  
+- ✅ Replaced `ta.atr()` with `calculate_atr()` function
+- ✅ Implemented manual Bollinger Bands calculation
+- ✅ Added missing 'rsi_period' parameter to default_params
+
+### Issues Fixed:
+- ✅ pandas_ta compatibility issue with numpy NaN import
+- ✅ Missing dependencies in requirements.txt
+- ✅ Dependency on external library with version conflicts
+- ✅ Improved code maintainability with local functions
+
+### Previous Task: Live Signals Bot Fix
+
+### Task Description:
+Fix the MT5Client.get_tick() method call in the live_signals.py script that was missing the required symbol parameter.
+
+### Progress:
+- [X] Identify the issue in countdown_to_next_bar() function
+- [X] Fix the get_tick() method call to include TEST_SYMBOL parameter
+- [X] Fix the tick data access to use dictionary format
+- [X] Update error logging to use f-string formatting
+- [X] Update documentation and lessons learned
+
+### Implementation Plan:
+1. ✅ Analyze the error message and identify the root cause
+2. ✅ Examine the MT5Client.get_tick() method signature
+3. ✅ Fix the method call to include the required symbol parameter
+4. ✅ Fix the tick data access pattern
+5. ✅ Update error logging for consistency
+6. ✅ Update documentation and lessons learned
+
+### Files Updated:
+- ✅ `scripts/live_signals.py` - Fixed get_tick() method call and tick data access
+- ✅ `.cursorrules` - Updated MT5 tick data handling lessons
+
+### Key Fixes Made:
+- ✅ Added TEST_SYMBOL parameter to get_tick() method call
+- ✅ Changed tick.time to tick['time'] for dictionary access
+- ✅ Fixed error logging to use f-string formatting
+- ✅ Updated documentation with proper tick data handling guidelines
+
+### Issues Fixed:
+- ✅ Missing symbol parameter in get_tick() method call
+- ✅ Incorrect tick data access pattern
+- ✅ Inconsistent error logging format
+- ✅ Missing documentation for tick data handling
+
+### Implementation Plan:
+1. ✅ Analyze the original initialize_symbols() method
+2. ✅ Identify the logic issues (only adding unavailable symbols)
+3. ✅ Fix the method to always attempt symbol addition
+4. ✅ Add proper availability checking before attempting addition
+5. ✅ Implement retry mechanism for failed symbols
+6. ✅ Add comprehensive logging and debugging
+7. ✅ Create helper methods for symbol management
+8. ✅ Add detailed status reporting functionality
+9. ✅ Create test script to verify the fix works
+10. ✅ Update documentation and lessons learned
+
+### Files Updated:
+- ✅ `app/data/mt5_client.py` - Fixed initialize_symbols() method and added helper methods
+- ✅ `scripts/test_symbol_initialization.py` - Test script to verify the fix
+- ✅ `.cursorrules` - Updated lessons and documentation
+
+### Key Improvements Made:
+- ✅ Fixed logic to always attempt symbol addition regardless of availability
+- ✅ Added proper symbol availability checking before attempting addition
+- ✅ Implemented retry mechanism for failed symbol additions
+- ✅ Added comprehensive logging with detailed status information
+- ✅ Created helper methods: get_available_symbols(), check_symbol_availability(), get_market_watch_symbols()
+- ✅ Added print_symbol_status() method for debugging
+- ✅ Improved error handling and reporting
+- ✅ Added proper symbol mapping verification
+
+### Issues Fixed:
+- ✅ Original method only tried to add symbols that weren't in available list
+- ✅ Missing verification of symbol visibility after addition
+- ✅ Inconsistent symbol mapping usage
+- ✅ Lack of detailed error reporting and debugging information
+- ✅ No retry mechanism for failed additions
+
+## Previous Task: Live Trading Module Implementation
+
+### Task Description:
+Implement a comprehensive Live Trading Module using main.py as the entry point, integrating existing functionalities like notification module, strategy module, and trading module. Use swing_trend_momentum.py as the live running strategy.
+
+### Progress:
+- [X] Create real-time execution loop
+- [X] Implement performance tracking
+- [X] Develop failover and recovery mechanisms
+- [X] Create system monitoring tools
+- [X] Implement automatic restart functionality
+- [X] Develop connection health checks
+- [X] Create multi-account management
+- [X] Implement broker communication failover
+- [X] Develop system resource monitoring
+- [X] Create trading hour management
+- [X] Implement scheduled tasks
+- [X] Develop emergency shutdown procedures
+- [X] Create activity logging system
+- [X] Implement strategy switching during live operation
+
+### Implementation Plan:
+1. ✅ Create comprehensive Live Trading Module structure
+2. ✅ Implement LiveTrader as central orchestrator
+3. ✅ Create configuration management system
+4. ✅ Implement execution engine for trade management
+5. ✅ Create strategy runner for SwingTrendMomentum strategy
+6. ✅ Implement position manager for position tracking
+7. ✅ Create risk monitor for portfolio risk management
+8. ✅ Implement system monitor for health monitoring
+9. ✅ Create performance tracker for metrics
+10. ✅ Implement trading scheduler for market hours
+11. ✅ Integrate with existing notification system
+12. ✅ Update main.py to use Live Trading Module
+13. ✅ Test and validate complete system
+
+### Files Created/Updated:
+- ✅ `app/live_trading/__init__.py` - Live trading module init
+- ✅ `app/live_trading/config.py` - Configuration management
+- ✅ `app/live_trading/live_trader.py` - Main orchestrator
+- ✅ `app/live_trading/execution_engine.py` - Trade execution
+- ✅ `app/live_trading/strategy_runner.py` - Strategy management
+- ✅ `app/live_trading/position_manager.py` - Position tracking
+- ✅ `app/live_trading/risk_monitor.py` - Risk monitoring
+- ✅ `app/live_trading/system_monitor.py` - System health
+- ✅ `app/live_trading/performance_tracker.py` - Performance tracking
+- ✅ `app/live_trading/trading_scheduler.py` - Trading schedule
+- ✅ `main.py` - Updated to use Live Trading Module
+- ✅ `scripts/live_trading_example.py` - Usage example
+
+### Key Features Implemented:
+- ✅ Real-time execution loop with threading
+- ✅ SwingTrendMomentum strategy integration
+- ✅ Comprehensive risk management
+- ✅ System health monitoring
+- ✅ Performance tracking and reporting
+- ✅ Trading schedule management
+- ✅ Notification integration
+- ✅ Crash recovery integration
+- ✅ Graceful shutdown procedures
+- ✅ Multi-component orchestration
 
 ## Previous Task: Web App Development - React.js + Flask
 
@@ -703,20 +1363,20 @@ Create a web application with React.js frontend and Flask backend API. The app w
 - [ ] Implement third-party service monitoring
 
 ## Live Trading Module
-- [ ] Create real-time execution loop
-- [ ] Implement performance tracking
-- [ ] Develop failover and recovery mechanisms
-- [ ] Create system monitoring tools
-- [ ] Implement automatic restart functionality
-- [ ] Develop connection health checks
-- [ ] Create multi-account management
-- [ ] Implement broker communication failover
-- [ ] Develop system resource monitoring
-- [ ] Create trading hour management
-- [ ] Implement scheduled tasks
-- [ ] Develop emergency shutdown procedures
-- [ ] Create activity logging system
-- [ ] Implement strategy switching during live operation
+- [X] Create real-time execution loop
+- [X] Implement performance tracking
+- [X] Develop failover and recovery mechanisms
+- [X] Create system monitoring tools
+- [X] Implement automatic restart functionality
+- [X] Develop connection health checks
+- [X] Create multi-account management
+- [X] Implement broker communication failover
+- [X] Develop system resource monitoring
+- [X] Create trading hour management
+- [X] Implement scheduled tasks
+- [X] Develop emergency shutdown procedures
+- [X] Create activity logging system
+- [X] Implement strategy switching during live operation
 
 ## Testing
 - [ ] Set up testing framework (pytest)
