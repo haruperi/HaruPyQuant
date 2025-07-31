@@ -83,5 +83,11 @@ websocket-client
 # Statistics
 scipy
 
+# Technical Analysis
+pandas-ta>=0.3.14b
+
 # Crypto related
 ccxt
+
+
+sambo

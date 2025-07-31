@@ -69,11 +69,70 @@ def compute_stats(
             'PnL': [t.pl for t in trades],
             'ReturnPct': [t.pl_pct for t in trades],
             'PnLPips': [t.pl_pips for t in trades],  # Add PnL in Pips
-            'EntryTime': [t.entry_time for t in trades],
-            'ExitTime': [t.exit_time for t in trades],
+            'EntryTime': [t.entry_time.replace(tzinfo=None) if t.entry_time else None for t in trades],
+            'ExitTime': [t.exit_time.replace(tzinfo=None) if t.exit_time else None for t in trades],
         })
         trades_df['Duration'] = trades_df['ExitTime'] - trades_df['EntryTime']
         trades_df['Tag'] = [t.tag for t in trades]
+
+        # Calculate MAE (Maximum Adverse Excursion) and MFE (Maximum Favorable Excursion)
+        mae_values = []
+        mfe_values = []
+        
+        for trade in trades:
+            if trade.exit_bar is not None:
+                # Get price data during the trade period
+                entry_bar = trade.entry_bar
+                exit_bar = trade.exit_bar
+                
+                # Get the price data for the trade period
+                # For long trades, we look at High prices for MFE and Low prices for MAE
+                # For short trades, we look at Low prices for MFE and High prices for MAE
+                if trade.is_long:
+                    # Long trade: MFE is highest high, MAE is lowest low
+                    trade_highs = ohlc_data['High'].values[entry_bar:exit_bar + 1]
+                    trade_lows = ohlc_data['Low'].values[entry_bar:exit_bar + 1]
+                    
+                    # Calculate MFE (maximum favorable excursion) - highest point reached in pips
+                    mfe = (trade_highs.max() - trade.entry_price) * 10000  # Convert to pips
+                    
+                    # Calculate MAE (maximum adverse excursion) - lowest point reached in pips
+                    mae = (trade_lows.min() - trade.entry_price) * 10000  # Convert to pips
+                    
+                else:
+                    # Short trade: MFE is lowest low, MAE is highest high
+                    trade_highs = ohlc_data['High'].values[entry_bar:exit_bar + 1]
+                    trade_lows = ohlc_data['Low'].values[entry_bar:exit_bar + 1]
+                    
+                    # Calculate MFE (maximum favorable excursion) - lowest point reached in pips
+                    mfe = (trade.entry_price - trade_lows.min()) * 10000  # Convert to pips
+                    
+                    # Calculate MAE (maximum adverse excursion) - highest point reached in pips
+                    mae = (trade.entry_price - trade_highs.max()) * 10000  # Convert to pips
+                
+                mae_values.append(mae)
+                mfe_values.append(mfe)
+            else:
+                # Trade is still open, set to None
+                mae_values.append(None)
+                mfe_values.append(None)
+        
+        # Add MAE and MFE columns to the DataFrame
+        trades_df['MAE'] = mae_values
+        trades_df['MFE'] = mfe_values
+
+        # Add commission data for each trade
+        commission_values = [t._commissions for t in trades]
+        trades_df['Commission'] = commission_values
+
+        # Add trade type (Buy/Sell) based on trade direction
+        type_values = []
+        for trade in trades:
+            if trade.size > 0:
+                type_values.append('Buy')  # Long trade
+            else:
+                type_values.append('Sell')  # Short trade
+        trades_df['Type'] = type_values
 
         # Add indicator values
         if len(trades_df) and strategy_instance:

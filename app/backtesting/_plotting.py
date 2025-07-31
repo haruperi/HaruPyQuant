@@ -703,12 +703,20 @@ return this.labels[index] || "";
         if 'Size' in display_trades.columns:
             columns.append(TableColumn(field='Size', title='Size',
                                       formatter=NumberFormatter(format='0.00')))
+        if 'Type' in display_trades.columns:
+            columns.append(TableColumn(field='Type', title='Type'))
         if 'ReturnPct' in display_trades.columns:
             columns.append(TableColumn(field='ReturnPct', title='Return %',
                                       formatter=NumberFormatter(format='0.00')))
         if 'PnL' in display_trades.columns:
             columns.append(TableColumn(field='PnL', title='Profit/Loss',
                                       formatter=NumberFormatter(format='0.00')))
+        if 'MAE' in display_trades.columns:
+            columns.append(TableColumn(field='MAE', title='MAE (pips)',
+                                      formatter=NumberFormatter(format='0.0')))
+        if 'MFE' in display_trades.columns:
+            columns.append(TableColumn(field='MFE', title='MFE (pips)',
+                                      formatter=NumberFormatter(format='0.0')))
         if 'Duration' in display_trades.columns:
             columns.append(TableColumn(field='Duration', title='Duration'))
             

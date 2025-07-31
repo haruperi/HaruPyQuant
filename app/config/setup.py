@@ -38,7 +38,7 @@ JBLANKED_API_KEY = config['JBLANKED']['API_KEY']
 MAX_DEVIATION = 5  # Maximum allowed deviation in points
 MAX_SLIPPAGE = 3  # Maximum allowed slippage in points
 MAGIC_NUMBER = 123456  # Unique identifier for trades placed by this EA
-INITIAL_CAPITAL = 276  # Initial balance for backtest
+INITIAL_CAPITAL = 275  # Initial balance for backtest
 LOT_SIZE = 0.01  # Lot size for backtest
 RISK_PER_TRADE = 0.01  # Risk per trade in percentage
 MAX_POSITIONS = 5  # Maximum number of concurrent positions
@@ -69,17 +69,18 @@ from app.data.mt5_client import MT5Client
 INTERVAL_MINUTES = 5          # Trading timeframe minutes
 TIME_SHIFT=-3                 # Broker time shift from GMT 0
 DEFAULT_TIMEFRAME = f'M{INTERVAL_MINUTES}'  # Default timeframe for data retrieval
+HIGHER_TIMEFRAME = "H1"         # Higher timeframe for data retrieval
 CORE_TIMEFRAME = "D1"         # Timeframe to calculate core functions (H1 for intraday and D1 for daily)
 START_POS=0                   # Data retrieval index starting point
-END_POS=300                   # Data retrieval index ending point
+END_POS=1500                   # Data retrieval index ending point
 END_POS_HTF=int(END_POS/2)               # Data retrieval index ending point for a higher timeframe (if any)
 END_POS_D1=ADR_PERIOD*3                 # Data retrieval index ending point for daily timeframe (whole last month)
 RANGE_START = datetime.now().strftime("%Y-%m-%d")         # Data retrieval range starting point
 RANGE_END = (datetime.now() - timedelta(days=END_POS_D1)).strftime("%Y-%m-%d")  # Data retrieval index starting point
-START_DATE = "2024-12-15"     # Data retrieval date starting point
-END_DATE = "2025-04-01"       # Data retrieval date ending point
+START_DATE = datetime(2025, 1, 1)     # Data retrieval date starting point
+END_DATE = datetime(2025, 6, 30)       # Data retrieval date ending point
+START_DATE_CORE = START_DATE - timedelta(days=15) # Remove 15 days for start date for df_core
 TEST_SYMBOL = "EURUSD"        # Random symbol for testing purposes
-DEFAULT_SYMBOL = TEST_SYMBOL  # Default symbol for testing and examples
 DEFAULT_START_CANDLE = START_POS  # Default start position for data retrieval
 DEFAULT_END_CANDLE = END_POS      # Default end position for data retrieval
 
@@ -96,7 +97,7 @@ LOG_LEVEL = "INFO"
 MONGO_DB_NAME = "haru_pyquant"
 MONGO_COLLECTION_NAME = "forex_sample"
 
-BROKER = 2
+BROKER = 1
 # Trading symbols by asset class
 
 # Currency indices available in broker 3

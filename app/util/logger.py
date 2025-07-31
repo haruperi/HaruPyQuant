@@ -3,6 +3,7 @@ import sys
 from pathlib import Path            
 import logging
 from logging.handlers import RotatingFileHandler
+import io
 
 # Add project root to the Python path   
 PROJECT_ROOT = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -47,8 +48,26 @@ def get_logger(name: str) -> logging.Logger:
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
-    # Console Handler
-    ch = logging.StreamHandler(sys.stdout)
+    # Console Handler with Unicode support
+    if os.name == 'nt':  # Windows
+        # Use a custom stream handler for Windows to handle Unicode properly
+        class UnicodeStreamHandler(logging.StreamHandler):
+            def emit(self, record):
+                try:
+                    msg = self.format(record)
+                    # Encode to UTF-8 and decode to handle Unicode properly
+                    encoded_msg = msg.encode('utf-8', errors='replace').decode('utf-8')
+                    stream = self.stream
+                    stream.write(encoded_msg)
+                    stream.write(self.terminator)
+                    self.flush()
+                except Exception:
+                    self.handleError(record)
+        
+        ch = UnicodeStreamHandler(sys.stdout)
+    else:
+        ch = logging.StreamHandler(sys.stdout)
+    
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
