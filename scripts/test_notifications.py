@@ -123,7 +123,7 @@ def send_test_trading_signal_notification(notification_manager: NotificationMana
             if result.success:
                 logger.info(f"Test signal notification sent successfully via {service}")
             else:
-                logger.error(f"Failed to send test signal notification via {service}: {result.error}")
+                logger.error(f"Failed to send test signal notification via {service}: {result.error_message}")
                 
     except Exception as e:
         logger.error(f"Error sending test trading signal notification: {e}")
@@ -159,7 +159,7 @@ def main():
             if result.success:
                 logger.info(f"Test system alert sent via {service}")
             else:
-                logger.error(f"Failed to send test system alert via {service}: {result.error}")
+                logger.error(f"Failed to send test system alert via {service}: {result.error_message}")
     except Exception as e:
         logger.error(f"Error sending test system alert: {e}")
         import traceback
@@ -181,7 +181,7 @@ def main():
             if result.success:
                 logger.info(f"Test completion message sent via {service}")
             else:
-                logger.error(f"Failed to send test completion message via {service}: {result.error}")
+                logger.error(f"Failed to send test completion message via {service}: {result.error_message}")
     except Exception as e:
         logger.error(f"Error sending test completion message: {e}")
         import traceback

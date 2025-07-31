@@ -25,37 +25,47 @@ class NotificationTemplate:
             "trading_alert": {
                 "title": "Trading Alert: {symbol} {action}",
                 "body": """
-🔔 Trading Alert
+                🔔 Trading Alert
 
-Symbol: {symbol}
-Action: {action}
-Price: {price}
-Reason: {reason}
-Time: {timestamp}
+                Symbol: {symbol}
+                Action: {action}
+                Price: {price}
+                Reason: {reason}
+                Time: {timestamp}
 
-Account: {account}
-Strategy: {strategy}
-Risk Level: {risk_level}
-                """.strip()
-            },
+                Account: {account}
+                Strategy: {strategy}
+                Risk Level: {risk_level}
+                                """.strip()
+                            },
             
             "trading_signal": {
                 "title": "Trading Signal: {symbol} {signal_type}",
                 "body": """
-📊 Trading Signal
+                📊 New Trade Signal Detected!
 
-Symbol: {symbol}
-Signal Type: {signal_type}
-Signal Strength: {strength}
-Entry Price: {entry_price}
-Stop Loss: {stop_loss}
-Take Profit: {take_profit}
-Time: {timestamp}
+                🕒 {timestamp}
 
-Strategy: {strategy}
-Confidence: {confidence}%
-                """.strip()
-            },
+                💡 {signal_type} {symbol} @ {entry_price}
+
+                ❌ Stop Loss: {stop_loss}
+                🛑 {stop_loss_pips} pips
+
+                💵 Take Profit: {take_profit}
+                🎯 {take_profit_pips} pips
+
+                💼 Lots: {lots}
+                🧾 Strategy: {strategy}
+                💪 Signal Strength: {strength}
+
+                📏 ADR: {adr}
+                📐 Range: {range}%
+
+                📉 Current VAR: ${current_var}
+                🎯 Proposed VAR: ${proposed_var}
+                ⚖️ VAR Difference: {var_difference}%
+                                """.strip()
+                            },
             
             "position_opened": {
                 "title": "Position Opened: {symbol} {direction}",
@@ -354,7 +364,7 @@ This is a test message to verify notification configuration.
         
         # Add timestamp if not provided
         if 'timestamp' not in kwargs:
-            kwargs['timestamp'] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            kwargs['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         try:
             title = template['title'].format(**kwargs)
@@ -437,7 +447,7 @@ This is a test message to verify notification configuration.
         
         # Add timestamp if not provided
         if 'timestamp' not in kwargs:
-            kwargs['timestamp'] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            kwargs['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         try:
             title = template['title'].format(**kwargs)

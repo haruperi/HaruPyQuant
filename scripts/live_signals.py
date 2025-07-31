@@ -59,6 +59,7 @@ from app.notifications import NotificationManager
 from app.notifications.config import NotificationConfig, NotificationPresets
 from app.notifications.manager import NotificationManagerConfig
 from app.notifications.templates import NotificationTemplate
+from app.strategy.trend_swingline_mtf import TrendSwinglineMTF
 import time
 from datetime import datetime, timedelta, timezone
 import sys
@@ -183,7 +184,7 @@ def send_trading_signal_notification(notification_manager: NotificationManager, 
             if result.success:
                 logger.info(f"Signal notification sent successfully via {service}")
             else:
-                logger.error(f"Failed to send signal notification via {service}: {result.error}")
+                logger.error(f"Failed to send signal notification via {service}: {result.error_message}")
                 
     except Exception as e:
         logger.error(f"Error sending trading signal notification: {e}")
@@ -247,41 +248,41 @@ def run_signal_analysis():
     notification_manager = initialize_notification_manager()
     
     try:
-        # Initialize secondary MT5 client for index data (broker 3 - Purple Trading)
-        mt5_client_indices = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=INDEX_SYMBOLS, broker=3)
+    #     # Initialize secondary MT5 client for index data (broker 3 - Purple Trading)
+    #     mt5_client_indices = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=INDEX_SYMBOLS, broker=3)
 
-        # Check secondary MT5 connection for indices
-        indices_account_info = mt5_client_indices.get_account_info()
-        if indices_account_info is not None:
-            logger.info("Indices MT5 initialized successfully")
-            logger.info(f"Indices Login: {indices_account_info['login']} \tserver: {indices_account_info['server']}")
+    #     # Check secondary MT5 connection for indices
+    #     indices_account_info = mt5_client_indices.get_account_info()
+    #     if indices_account_info is not None:
+    #         logger.info("Indices MT5 initialized successfully")
+    #         logger.info(f"Indices Login: {indices_account_info['login']} \tserver: {indices_account_info['server']}")
 
-            # Store index dataframes in a dictionary
-            index_dataframes = {}
-            for index in INDEX_SYMBOLS:
-                index_dataframes[index] = mt5_client_indices.fetch_data(index, "H1", start_pos=START_POS, end_pos=END_POS_HTF)
-                logger.info(f"Fetched {index} data: {index_dataframes[index].shape if index_dataframes[index] is not None else 'None'}")
+    #         # Store index dataframes in a dictionary
+    #         index_dataframes = {}
+    #         for index in INDEX_SYMBOLS:
+    #             index_dataframes[index] = mt5_client_indices.fetch_data(index, "H1", start_pos=START_POS, end_pos=END_POS_HTF)
+    #             logger.info(f"Fetched {index} data: {index_dataframes[index].shape if index_dataframes[index] is not None else 'None'}")
 
-            if index_dataframes is not None:
-                use_indices = True
-            else:
-                use_indices = False
+    #         if index_dataframes is not None:
+    #             use_indices = True
+    #         else:
+    #             use_indices = False
 
-        else:
-            logger.warning(f"Failed to connect to indices MT5 terminal. Error code: {mt5_client_indices.mt5.last_error()}")
-            logger.warning("Index data will not be available. Using main MT5 for all data.")
-            index_dataframes = {}
-            use_indices = False
+    #     else:
+    #         logger.warning(f"Failed to connect to indices MT5 terminal. Error code: {mt5_client_indices.mt5.last_error()}")
+    #         logger.warning("Index data will not be available. Using main MT5 for all data.")
+    #         index_dataframes = {}
+    #         use_indices = False
 
-        mt5_client_indices.shutdown()
-        if mt5_client_indices._connected:
-            logger.error("Failed to close indices MT5 connection")  
-        else:
-            logger.info("Indices MT5 connection closed successfully")
+    #     mt5_client_indices.shutdown()
+    #     if mt5_client_indices._connected:
+    #         logger.error("Failed to close indices MT5 connection")  
+    #     else:
+    #         logger.info("Indices MT5 connection closed successfully")
             
 
         # Initialize main MT5 client for trading data (broker 1 - Pepperstone)
-        mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=FOREX_SYMBOLS, broker=2)
+        mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=FOREX_SYMBOLS, broker=BROKER)
 
         signals_found = 0
         
@@ -291,62 +292,40 @@ def run_signal_analysis():
                 if not symbol_info or not hasattr(symbol_info, "trade_tick_size"):
                     logger.error(f"Error: Invalid symbol_info for {symbol}. Skipping...")
                     continue
+                
+                data = mt5_client.fetch_data(symbol, "M5", start_pos=START_POS, end_pos=END_POS)
+                dfH1 = mt5_client.fetch_data(symbol, "H1", start_pos=START_POS, end_pos=END_POS_HTF)
 
-                df = mt5_client.fetch_data(symbol, "M5", start_pos=START_POS, end_pos=END_POS)
-                df_H1 = mt5_client.fetch_data(symbol, "H1", start_pos=START_POS, end_pos=END_POS_HTF)
+                if data is not None and dfH1 is not None:
+  
+                    strategy = TrendSwinglineMTF(mt5_client, symbol_info, parameters={})
+                    trigger_signal, data = strategy.get_trigger_signal(data)
+                    if trigger_signal != 0:
+                        data = strategy.get_features(data, dfH1)
+                        entry_signal, entry_time = strategy.get_entry_signal(data)
 
-                if df is not None and df_H1 is not None:
-                    strategy = SwingTrendMomentumStrategy(mt5_client, symbol_info)
-                    trigger, df = strategy.signal_trigger(df, df_H1)
-                    if not trigger:
-                        logger.info(f"No trigger for {symbol}, skipping...")
-                        continue
-                    else:
-                        # Extract base and quote currencies from symbol
-                        base_currency = f"{symbol[:3]}X"
-                        quote_currency = f"{symbol[3:]}X"
+                        if entry_signal != 0:
+                            df_core = mt5_client.fetch_data(symbol, CORE_TIMEFRAME, start_pos=START_POS, end_pos=END_POS_D1)
 
-                        # Get the corresponding dataframes from the index_dataframes dictionary
-                        df_base = None
-                        df_quote = None
-
-                        if use_indices and base_currency in index_dataframes:
-                            df_base = index_dataframes[base_currency]
-                            
-                        if use_indices and quote_currency in index_dataframes:
-                            df_quote = index_dataframes[quote_currency]   
-
-                        if df_base is not None and df_quote is not None:
-                            
-                            logger.info(f"Processing signals for {symbol} -> df_base: {base_currency} AND df_quote: {quote_currency}")
-                            signal, action, df = strategy.get_signals(df, df_base, df_quote)
-                            if not signal:
-                                logger.info(f"No signal for {symbol}, skipping...")
+                            if df_core is None:
+                                logger.error(f"Failed to fetch {CORE_TIMEFRAME} data for {symbol}, skipping...")
                                 continue
+
+                            str_message, data = strategy.get_trade_parameters(data, df_core, entry_signal, symbol_info)
+
+                            if str_message is not None:
+                                logger.info(f"SIGNAL FOUND: {str_message}")
+                                signals_found += 1
+                                send_trading_signal_notification(notification_manager, str_message, symbol)
                             else:
-                                df_core = mt5_client.fetch_data(symbol, CORE_TIMEFRAME, start_pos=START_POS, end_pos=END_POS_D1)
-                                if df_core is None:
-                                    logger.error(f"Failed to fetch {CORE_TIMEFRAME} data for {symbol}, skipping...")
-                                    continue
-                                
-                                dict_str_message, df = strategy.get_parameters(df, df_core, mt5_client, action, symbol_info)
-                                if dict_str_message:
-                                    logger.info(f"SIGNAL FOUND: {dict_str_message}")
-                                    signals_found += 1
-                                    
-                                    # Send notification for the trading signal
-                                    send_trading_signal_notification(notification_manager, dict_str_message, symbol)
-                        else:
-                            if df_base is None:
-                                logger.error(f"Error: Failed to fetch base currency data for {base_currency}")
-                            if df_quote is None:
-                                logger.error(f"Error: Failed to fetch quote currency data for {quote_currency}")
-                            logger.warning(f"No indices client available, Connection to indices MT5 terminal :{use_indices} Error: {mt5_client_indices.mt5.last_error()}, skipping...")
-                            continue
+                                logger.info(f"No Signal for {symbol}, at {entry_time} skipping...")
+                    else:
+                        logger.info(f"No Trigger Signal for {symbol}, skipping...")
+                        continue
                 else:
-                    if df is None:
+                    if data is None:
                         logger.error(f"Error: Failed to fetch M5 data for {symbol}. Skipping...")
-                    if df_H1 is None:
+                    if dfH1 is None:
                         logger.error(f"Error: Failed to fetch H1 data for {symbol}. Skipping...")
                     continue
             except Exception as e:
@@ -355,25 +334,25 @@ def run_signal_analysis():
         
         logger.info(f"Signal analysis completed. Found {signals_found} signals.")
         
-        # Send completion notification if signals were found
-        if signals_found > 0 and notification_manager:
-            try:
-                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                results = notification_manager.send_custom_message(
-                    title=f"Analysis Complete - {signals_found} Signal(s) Found",
-                    body=f"""Signal Analysis Summary
-                    Analysis Time: {current_time} UTC
-                    Signals Found: {signals_found}
-                    Strategy: Swing Trend Momentum
-                    Next Analysis: In {INTERVAL_MINUTES} minutes
+        # # Send completion notification if signals were found
+        # if signals_found > 0 and notification_manager:
+        #     try:
+        #         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        #         results = notification_manager.send_custom_message(
+        #             title=f"Analysis Complete - {signals_found} Signal(s) Found",
+        #             body=f"""Signal Analysis Summary
+        #             Analysis Time: {current_time} UTC
+        #             Signals Found: {signals_found}
+        #             Strategy: Swing Trend Momentum
+        #             Next Analysis: In {INTERVAL_MINUTES} minutes
 
-                    HaruPyQuant Bot - Live Trading Signals""",
-                                        level="INFO")
-                for service, result in results.items():
-                    if result.success:
-                        logger.info(f"Completion notification sent via {service}")
-            except Exception as e:
-                logger.error(f"Error sending completion notification: {e}")
+        #             HaruPyQuant Bot - Live Trading Signals""",
+        #                                 level="INFO")
+        #         for service, result in results.items():
+        #             if result.success:
+        #                 logger.info(f"Completion notification sent via {service}")
+        #     except Exception as e:
+        #         logger.error(f"Error sending completion notification: {e}")
         
         mt5_client.shutdown()
         return True
