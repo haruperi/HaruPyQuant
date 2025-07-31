@@ -37,7 +37,7 @@ class NotificationMessage:
     title: str
     body: str
     level: NotificationLevel = NotificationLevel.INFO
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=datetime.now)
     metadata: Dict[str, Any] = field(default_factory=dict)
     recipients: List[str] = field(default_factory=list)
     template_name: Optional[str] = None
@@ -57,7 +57,7 @@ class NotificationResult:
     success: bool
     message_id: Optional[str] = None
     error_message: Optional[str] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=datetime.now)
     retry_count: int = 0
     delivery_time_ms: Optional[int] = None
 
@@ -81,7 +81,7 @@ class RateLimiter:
     def can_send(self) -> bool:
         """Check if a notification can be sent based on rate limits."""
         with self.lock:
-            now = datetime.utcnow()
+            now = datetime.now()
             # Remove old requests outside the time window
             self.requests = [req for req in self.requests 
                            if now - req < timedelta(seconds=self.time_window)]
@@ -98,7 +98,7 @@ class RateLimiter:
                 return 0
             
             oldest_request = min(self.requests)
-            wait_time = self.time_window - (datetime.utcnow() - oldest_request).seconds
+            wait_time = self.time_window - (datetime.now() - oldest_request).seconds
             return max(0, wait_time)
 
 
@@ -301,7 +301,7 @@ Stack Trace: {stack_trace}
         
         # Add timestamp if not provided
         if 'timestamp' not in kwargs:
-            kwargs['timestamp'] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            kwargs['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         try:
             title = template['title'].format(**kwargs)
