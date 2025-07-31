@@ -11,6 +11,31 @@ interface OHLCVBar {
   close: number;
 }
 
+// Helper function to determine pip decimal places
+const getPipDigit = (symbol: string): number => {
+    const s = symbol.toUpperCase();
+    if (s.includes("JPY")) return 2;
+    if (s.includes("XAU") || s.includes("XAG")) return 2;
+    if (["US500", "US30", "UK100", "GER40", "NAS100", "USDX", "EURX"].includes(s)) return 1;
+    return 4; // Most Forex pairs
+};
+
+interface PlotlyClickEventData {
+  points: {
+    x: string | number;
+    y: string | number;
+    pointNumber: number;
+  }[];
+  xval: number;
+  yval: number;
+}
+
+interface MeasurePoint {
+  x: string | number;
+  y: number;
+  index: number;
+}
+
 // EMA calculation function
 const calculateEMA = (data: number[], period: number): number[] => {
   const ema: number[] = [];
@@ -78,21 +103,24 @@ export default function IndicatorsPage() {
     { label: "Date Range", value: "date" },
     { label: "Today", value: "today" },
   ];
-  const today = new Date().toISOString().slice(0, 10);
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  
   const [rangeMode, setRangeMode] = useState("today"); // default to today
   const [barCount, setBarCount] = useState(BAR_COUNTS[0]);
-  const [startDate, setStartDate] = useState(weekAgo);
-  const [endDate, setEndDate] = useState(today);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [today, setToday] = useState('');
   const [symbol, setSymbol] = useState(ALL_SYMBOLS[0]);
   const [interval, setInterval] = useState(TIMEFRAMES[4].value); // default to 5 min
   const [selectedIndicators, setSelectedIndicators] = useState<string[]>([]);
   const [selectedSMC, setSelectedSMC] = useState<string[]>([]);
   const [selectedSignals, setSelectedSignals] = useState<string[]>([]);
   const [emaPeriod, setEmaPeriod] = useState(20);
+  const [isMeasuring, setIsMeasuring] = useState(false);
+  const [measurePoints, setMeasurePoints] = useState<MeasurePoint[]>([]);
 
   const SMC_OPTIONS = [
     { label: 'Swingline', value: 'Swingline' },
+    { label: 'Swingline H1', value: 'SwinglineH1' },
     { label: 'Swing Point', value: 'SwingPoint' },
     { label: 'S/R Lines', value: 'SRLines' },
     { label: 'BOS', value: 'BOS' },
@@ -119,6 +147,55 @@ export default function IndicatorsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [smcDropdownOpen]);
 
+  const handleChartClick = (data: PlotlyClickEventData) => {
+    if (!isMeasuring) return;
+
+    const xVal = data.xval;
+    const yVal = data.yval;
+
+    if (xVal === undefined || yVal === undefined) {
+      console.error("Could not get click coordinates from event data:", data);
+      return;
+    }
+    
+    const clickedTime = new Date(xVal).getTime();
+    let closestIndex = -1;
+    let minDiff = Infinity;
+
+    ohlcv.forEach((bar, index) => {
+      const barTime = new Date(bar.time as string).getTime();
+      const diff = Math.abs(barTime - clickedTime);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIndex = index;
+      }
+    });
+
+    if (closestIndex === -1) {
+      console.error("Could not find a matching bar for the clicked point.");
+      return;
+    }
+    
+    const yValue = parseFloat(String(yVal));
+    if (isNaN(yValue)) {
+      console.error("Could not parse y-value from click:", yVal);
+      return;
+    }
+
+    const pointData: MeasurePoint = {
+      x: ohlcv[closestIndex].time,
+      y: yValue,
+      index: closestIndex,
+    };
+    
+    const newMeasurePoints = [...measurePoints, pointData];
+    setMeasurePoints(newMeasurePoints);
+
+    if (newMeasurePoints.length === 2) {
+      setIsMeasuring(false);
+    }
+  };
+
   // =================================================================================
   // Real Data State
   // =================================================================================
@@ -126,6 +203,8 @@ export default function IndicatorsPage() {
   const [smcData, setSmcData] = useState<{ 
     swingline: number[]; 
     swingvalue: number[]; 
+    swinglineH1?: number[];
+    swingvalueH1?: number[];
     swingpoint: number[]; 
     Resistance: number[]; 
     Support: number[]; 
@@ -147,6 +226,18 @@ export default function IndicatorsPage() {
   // Fetch OHLCV Data from Flask API
   // =================================================================================
   useEffect(() => {
+    // Set initial dates on client-side to avoid hydration mismatch
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const weekAgoStr = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    setToday(todayStr);
+    if (!startDate) setStartDate(weekAgoStr);
+    if (!endDate) setEndDate(todayStr);
+  }, []); // Run only once on mount
+
+  useEffect(() => {
+    // Skip fetch if dates are not set yet
+    if (!startDate || !endDate) return;
+
     setLoading(true);
     setFetchError(null);
     setOhlcv([]);
@@ -154,8 +245,9 @@ export default function IndicatorsPage() {
     
     // Auto-set dates for "today" mode
     if (rangeMode === "today") {
-      setStartDate(today);
-      setEndDate(today);
+      const todayStr = new Date().toISOString().slice(0, 10);
+      setStartDate(todayStr);
+      setEndDate(todayStr);
     }
     
     const paramsObj: Record<string, string> = {
@@ -194,7 +286,7 @@ export default function IndicatorsPage() {
       })
       .catch(e => console.error('SMC data fetch error:', e))
       .finally(() => setLoading(false));
-  }, [symbol, interval, rangeMode, barCount, startDate, endDate, today]);
+  }, [symbol, interval, rangeMode, barCount, startDate, endDate]);
 
   // =================================================================================
   // Fullscreen Logic
@@ -343,6 +435,81 @@ export default function IndicatorsPage() {
             width: 2
           },
           showlegend: false
+        });
+      }
+    }
+    
+    // Calculate H1 Swinglines using server SMC data
+    if (selectedSMC.includes('SwinglineH1') && smcData && smcData.swinglineH1 && smcData.swingvalueH1) {
+      const { swinglineH1, swingvalueH1 } = smcData;
+      // Build segments for consecutive same nonzero swingline values
+      let segmentX: (string | number)[] = [];
+      let segmentY: number[] = [];
+      let currentType: number | null = null;
+      for (let i = 0; i < swinglineH1.length; i++) {
+        if (swinglineH1[i] === 1 || swinglineH1[i] === -1) {
+          if (currentType === swinglineH1[i]) {
+            // Continue current segment
+            segmentX.push(times[i]);
+            segmentY.push(swingvalueH1[i]);
+          } else {
+            // End previous segment if exists
+            if (segmentX.length > 1) {
+              indicators.push({
+                x: segmentX,
+                y: segmentY,
+                type: 'scatter',
+                mode: 'lines',
+                name: currentType === 1 ? 'Swingline H1 Up' : 'Swingline H1 Down',
+                line: {
+                  color: currentType === 1 ? 'rgb(38,166,154)' : 'rgb(239,83,80)',
+                  width: 3,
+                  dash: 'dash'
+                },
+                showlegend: true
+              });
+            }
+            // Start new segment
+            currentType = swinglineH1[i];
+            segmentX = [times[i]];
+            segmentY = [swingvalueH1[i]];
+          }
+        } else {
+          // End current segment if exists
+          if (segmentX.length > 1) {
+            indicators.push({
+              x: segmentX,
+              y: segmentY,
+              type: 'scatter',
+              mode: 'lines',
+              name: currentType === 1 ? 'Swingline H1 Up' : 'Swingline H1 Down',
+              line: {
+                color: currentType === 1 ? 'rgb(38,166,154)' : 'rgb(239,83,80)',
+                width: 3,
+                dash: 'dash'
+              },
+              showlegend: true
+            });
+          }
+          currentType = null;
+          segmentX = [];
+          segmentY = [];
+        }
+      }
+      // Push last segment if needed
+      if (segmentX.length > 1) {
+        indicators.push({
+          x: segmentX,
+          y: segmentY,
+          type: 'scatter',
+          mode: 'lines',
+          name: currentType === 1 ? 'Swingline H1 Up' : 'Swingline H1 Down',
+          line: {
+            color: currentType === 1 ? 'rgb(38,166,154)' : 'rgb(239,83,80)',
+            width: 3,
+            dash: 'dash'
+          },
+          showlegend: true
         });
       }
     }
@@ -597,12 +764,12 @@ export default function IndicatorsPage() {
           retestX.push(times[i]);
           retestY.push(ohlcv[i]?.low ?? null);
           retestColor.push('rgb(0, 255, 180)'); // Teal for buy
-          retestSymbol.push('star-triangle-up');
+          retestSymbol.push('circle-open');
         } else if (smcData.retest_signal[i] === -1) {
           retestX.push(times[i]);
           retestY.push(ohlcv[i]?.high ?? null);
-          retestColor.push('rgb(255, 180, 0)'); // Orange for sell
-          retestSymbol.push('star-triangle-down');
+          retestColor.push('rgb(255, 102, 0)'); // Orange for sell
+          retestSymbol.push('circle-open');
         }
       }
       if (retestX.length > 0) {
@@ -614,7 +781,7 @@ export default function IndicatorsPage() {
           name: 'Retest Signal',
           marker: {
             color: retestColor,
-            size: 20,
+            size: 5,
             symbol: retestSymbol,
             line: { width: 2, color: '#fff' }
           },
@@ -645,7 +812,7 @@ export default function IndicatorsPage() {
   ];
   const [showCrosshair, setShowCrosshair] = useState(true);
 
-  const plotlyLayout = {
+  const plotlyLayout: Partial<Plotly.Layout> = {
     dragmode: 'zoom',
     margin: { t: 30, r: 40, b: 40, l: 60 },
     paper_bgcolor: '#23272F',
@@ -689,6 +856,72 @@ export default function IndicatorsPage() {
     hovermode: 'x unified',
   };
 
+  if (measurePoints.length === 2) {
+    const p1 = measurePoints[0].index < measurePoints[1].index ? measurePoints[0] : measurePoints[1];
+    const p2 = measurePoints[0].index < measurePoints[1].index ? measurePoints[1] : measurePoints[0];
+
+    const priceChange = p2.y - p1.y;
+    const pipDigit = getPipDigit(symbol);
+    const pipValue = Math.pow(10, -pipDigit);
+    const pips = priceChange / pipValue;
+    const bars = p2.index - p1.index;
+    const timeDiff = new Date(p2.x as string).getTime() - new Date(p1.x as string).getTime();
+
+    const formatTimeDiff = (ms: number) => {
+        const totalSeconds = Math.floor(ms / 1000);
+        const days = Math.floor(totalSeconds / (3600 * 24));
+        const hours = Math.floor((totalSeconds % (3600*24)) / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+        let str = "";
+        if (days > 0) str += `${days}d `;
+        if (hours > 0) str += `${hours}h `;
+        if (minutes > 0 && days === 0) str += `${minutes}m`;
+        return str.trim() || "0m";
+    };
+
+    const text = `Pips: ${pips.toFixed(1)}<br>Bars: ${bars} (${formatTimeDiff(timeDiff)})`;
+
+    if (!plotlyLayout.shapes) plotlyLayout.shapes = [];
+    plotlyLayout.shapes.push({
+        type: 'line',
+        x0: p1.x,
+        y0: p1.y,
+        x1: p2.x,
+        y1: p2.y,
+        line: {
+            color: 'rgba(255, 255, 0, 1)',
+            width: 2,
+            dash: 'solid',
+        },
+    });
+
+    if (!plotlyLayout.annotations) plotlyLayout.annotations = [];
+    plotlyLayout.annotations.push({
+        x: p2.x,
+        y: p2.y,
+        text: text,
+        showarrow: true,
+        font: {
+            family: 'Arial',
+            size: 12,
+            color: '#ffffff',
+        },
+        align: 'center',
+        arrowhead: 4,
+        arrowsize: 1,
+        arrowwidth: 2,
+        arrowcolor: '#ffff00',
+        ax: 0,
+        ay: -50,
+        bordercolor: '#ffff00',
+        borderwidth: 1,
+        borderpad: 4,
+        bgcolor: 'rgba(0,0,0,0.8)',
+        opacity: 0.8,
+    });
+  }
+
   // =================================================================================
   // Render Logic
   // =================================================================================
@@ -709,6 +942,23 @@ export default function IndicatorsPage() {
               onClick={handleFullscreen}
             >
               {isFullscreen ? "Exit Full Screen" : "Full Screen"}
+            </button>
+            <button
+              className={`text-xs px-3 py-1 rounded font-semibold ${
+                isMeasuring
+                  ? "bg-yellow-500 text-black"
+                  : "bg-gray-600 text-gray-300"
+              }`}
+              onClick={() => {
+                setIsMeasuring(!isMeasuring);
+                if (!isMeasuring) {
+                  // when entering measuring mode, clear previous points
+                  setMeasurePoints([]);
+                }
+              }}
+              title="Toggle Measurement Tool"
+            >
+              Measure
             </button>
             <button
               className={`text-xs px-3 py-1 rounded font-semibold ${
@@ -875,6 +1125,7 @@ export default function IndicatorsPage() {
             useResizeHandler={true}
             style={{ width: '100%', height: '100%' }}
             config={{ displayModeBar: true, responsive: true }}
+            onClick={handleChartClick}
           />
           <style jsx>{`
             .chart-container {
