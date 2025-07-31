@@ -110,7 +110,7 @@ class HarrietStrategy(BaseStrategy):
         # create NaNs where the index doesn't match, and then forward-filling them.
         merged_data['ht_higher_low'] = ht_data['ht_higher_low']
         merged_data['ht_lower_high'] = ht_data['ht_lower_high']
-        merged_data[['ht_higher_low', 'ht_lower_high']] = merged_data[['ht_higher_low', 'ht_lower_high']].ffill().fillna(False)
+        merged_data[['ht_higher_low', 'ht_lower_high']] = merged_data[['ht_higher_low', 'ht_lower_high']].ffill().infer_objects(copy=False).fillna(False)
 
         # --- Combine Signals ---
         # A final signal is generated only if both timeframes agree.

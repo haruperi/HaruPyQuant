@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 # from app.util.logger import get_logger
 # from app.data.mt5_client import MT5Client
 from app.config.setup import *
-from app.strategy.indicators import get_adr
+from app.strategy.indicators import adr
 
 logger = get_logger(__name__)
 
@@ -774,7 +774,11 @@ def add_position_to_portfolio(symbol, action, portfolio, mt5_client, date_input:
             logger.error(f"Failed to fetch data for {symbol}")
             return None
             
-        current_adr, current_daily_range_percentage, stop_loss = get_adr(d1_df, symbol_info)
+        d1_df = adr(d1_df, symbol_info)
+        current_adr = d1_df['ADR'].iloc[-1]
+        current_daily_range_percentage = d1_df['daily_range'].iloc[-1]
+        stop_loss = d1_df['SL'].iloc[-1]
+
         lots = portfolio.calculate_position_size(stop_loss, symbol_info)
         lots = lots if action == "Buy" else -lots
         portfolio.add_position(symbol, lots)
@@ -795,19 +799,20 @@ def test_risk_manager():
     """
 
     # Set specific date
-    custom_date = None  # None for default date range
-    #custom_date = "2023-07-15"
+    #custom_date = None  # None for default date range
+    custom_date = "2023-07-01"
     
     # Initialize the MT5 client
-    mt5_client = MT5Client()
+    mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=FOREX_SYMBOLS, broker=BROKER)
 
     # Initialize the risk manager
     portfolio = RiskManager(mt5_client=mt5_client, input_date=custom_date)
 
     # Add positions to the portfolio
-    add_position_to_portfolio('GBPAUD', "Sell",portfolio, mt5_client, custom_date)
-    add_position_to_portfolio('USDCAD', "Buy",portfolio, mt5_client, custom_date)
-    add_position_to_portfolio('EURGBP', "Sell",portfolio, mt5_client, custom_date)
+    add_position_to_portfolio('AUDUSD', "Buy",portfolio, mt5_client, custom_date)
+    add_position_to_portfolio('USDCHF', "Sell",portfolio, mt5_client, custom_date)
+    add_position_to_portfolio('EURCAD', "Sell",portfolio, mt5_client, custom_date)
+    # add_position_to_portfolio('EURGBP', "Sell",portfolio, mt5_client, custom_date)
     # add_position_to_portfolio('EURNZD', "Buy",portfolio, mt5_client, custom_date)
     # add_position_to_portfolio('AUDCAD', "Buy",portfolio, mt5_client, custom_date)
     # add_position_to_portfolio('NZDUSD', "Sell",portfolio, mt5_client, custom_date)
@@ -819,7 +824,7 @@ def test_risk_manager():
     # add_position_to_portfolio('GBPAUD', "Sell",portfolio, mt5_client, custom_date)
     # add_position_to_portfolio('EURGBP', "Sell",portfolio, mt5_client, custom_date)
     # add_position_to_portfolio('CADJPY', "Buy",portfolio, mt5_client, custom_date)
-    # add_position_to_portfolio('EURUSD', "Sell",portfolio, mt5_client, custom_date)
+    
     # add_position_to_portfolio('NZDCAD', "Buy",portfolio, mt5_client, custom_date)
     # add_position_to_portfolio('AUDNZD', "Buy",portfolio, mt5_client, custom_date)
     # add_position_to_portfolio('EURCAD', "Buy",portfolio, mt5_client, custom_date)
