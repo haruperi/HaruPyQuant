@@ -1,9 +1,14 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 import pandas as pd
+from datetime import datetime
 from app.strategy.exit_strategy import ExitStrategy
 from app.trading.risk_manager import *
 from app.strategy.indicators import adr
+from app.strategy.indicators import SmartMoneyConcepts
+from app.util.logger import get_logger
+
+logger = get_logger(__name__)
 
 class BaseStrategy(ABC):
     """
@@ -12,18 +17,29 @@ class BaseStrategy(ABC):
     All strategies should inherit from this class and implement the `calculate_signals` method.
     """
 
-    def __init__(self, mt5_client: MT5Client, parameters: Dict[str, Any], exit_strategy: Optional[ExitStrategy] = None):
+    def __init__(self, mt5_client: MT5Client, parameters: Dict[str, Any], symbol_info: dict = None, exit_strategy: Optional[ExitStrategy] = None):
         """
         Initializes the strategy with a set of parameters and optional exit strategy.
 
         Args:
+            mt5_client (MT5Client): The MT5 client for data access.
             parameters (Dict[str, Any]): A dictionary of parameters for the strategy.
+            symbol_info (dict): The symbol information.
             exit_strategy (Optional[ExitStrategy]): Optional exit strategy for SL/TP management.
         """
 
         # Set parameters
         self.parameters = parameters
         self.mt5_client = mt5_client
+        self.symbol_info = symbol_info
+        
+        # Initialize symbol and SMC if symbol_info is provided
+        if symbol_info is not None:
+            self.symbol = symbol_info.name
+            self.smc = SmartMoneyConcepts(mt5_client, self.symbol)
+        else:
+            self.symbol = None
+            self.smc = None
 
         # Get Entry parameters
         self.buy, self.sell = False, False
@@ -31,12 +47,54 @@ class BaseStrategy(ABC):
         self.entry_time, self.exit_time = None, None
 
         # Get exit parameters
-        self.var_buy_high, self.var_sell_high = None, None
-        self.var_buy_low, self.var_sell_low = None, None
+        self.var_buy_high, self.var_buy_low = None, None
+        self.var_sell_high, self.var_sell_low = None, None
         self.exit_strategy = exit_strategy
 
         # Set output dictionary
         self.output_dictionary = parameters.copy()
+
+    def get_trigger_signal(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Gets the trigger signal for any/all strategies.
+        This is a perfomance improvement to avoid calling the get_features method for each strategy every time if there is no trigger signal.
+        get_features will be called only if there is a trigger signal.
+        Trigger signals should be stored in data['Trigger'] as +1 (buy), -1 (sell), 0 (hold).
+
+        Args:
+            data (pd.DataFrame): A DataFrame with market data (OHLCV).
+
+        Returns:
+            pd.DataFrame: A DataFrame with trigger signal.
+
+        """
+        # First, calculate the swing values using SMC
+        data = self.smc.calculate_swingline(data)
+
+        if data is None or "swingline" not in data.columns or "swingvalue" not in data.columns:
+            logger.error(f"Error: Failed to calculate LTF swingline for {self.symbol}. Skipping...")
+            return 0, data
+
+        # Get the trigger signal
+        long_cond = (
+            (data["Close"].shift(1) < data["swingvalue"].shift(1)) &
+            (data["Close"] > data["swingvalue"]) &
+            (data["swingline"] == -1) 
+        )
+
+        short_cond = (
+            (data["Close"].shift(1) > data["swingvalue"].shift(1)) &
+            (data["Close"] < data["swingvalue"]) &
+            (data["swingline"] == 1) 
+        )
+
+        data['Trigger'] = 0
+        data.loc[long_cond, 'Trigger'] = 1
+        data.loc[short_cond, 'Trigger'] = -1    
+
+        trigger_signal = data["Trigger"].iloc[-2]
+
+        return trigger_signal, data
 
     @abstractmethod
     def get_features(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -79,10 +137,35 @@ class BaseStrategy(ABC):
         """
         risk_manager = RiskManager(self.mt5_client)
 
-        df_core = adr(df_core, symbol_info)
+        # Check if strategy has explicit TP/SL values in parameters
+        # If so, use those values directly instead of calculating from ADR
+        if hasattr(self, 'parameters') and self.parameters:
+            take_profit_pips = self.parameters.get('take_profit_pips', None)
+            stop_loss_pips = self.parameters.get('stop_loss_pips', None)
+            
+            # If TP/SL are explicitly set in parameters, use them directly
+            if take_profit_pips is not None or stop_loss_pips is not None:
+                df_core["daily_range"] = stop_loss_pips * 3
+                df_core["ADR"] = stop_loss_pips * 3
+                df_core["SL"] = stop_loss_pips
+            else:
+                logger.info(f"Calling ADR function with symbol_info: {symbol_info}")
+                df_core = adr(df_core, symbol_info)
+                if df_core is None:
+                    logger.error("ADR function returned None")
+                else:
+                    logger.info(f"ADR calculation successful, SL column: {df_core['SL'].iloc[-1] if 'SL' in df_core.columns else 'No SL column'}")
+        else:
+            # No parameters available, use ADR calculation
+            df_core = adr(df_core, symbol_info)
+            if df_core is None:
+                logger.error("ADR function returned None")
+            else:
+                logger.info(f"ADR calculation successful, SL column: {df_core['SL'].iloc[-1] if 'SL' in df_core.columns else 'No SL column'}")
+
         if df_core is None or "SL" not in df_core.columns:
-            print(f"Failed to calculate ADR for {symbol_info.name}, skipping...")
-            return None      
+            logger.error(f"Failed to calculate ADR for {symbol_info.name}, skipping...")
+            return None, None      
         
         stop_loss = df_core["SL"].iloc[-1]
         lots = risk_manager.calculate_position_size(stop_loss, symbol_info)
@@ -126,20 +209,21 @@ class BaseStrategy(ABC):
                 "SL Pips": stop_loss,
                 "TP Pips": stop_loss * 2,
                 "Lots": lots,
-                "CurrVAR": f"${round(curr_value_at_risk):,.2f}",
-                "PropVAR": f"${round(proposed_value_at_risk):,.2f}",
-                "DiffVAR": f"{round(incr_var)}%",
+                "CurrVAR": round(curr_value_at_risk, 2),
+                "PropVAR": round(proposed_value_at_risk, 2),
+                "DiffVAR": round(incr_var),
             }
 
         if action == 1:
             str_message["Price"] = symbol_info.ask
-            str_message["SL Price"] = round(symbol_info.bid - stop_loss * 10 * symbol_info.trade_tick_size, symbol_info.digits)
+            str_message["SL Price"] = max(round(symbol_info.bid - stop_loss * 10 * symbol_info.trade_tick_size, symbol_info.digits), 0)
             str_message["TP Price"] = round(symbol_info.ask + stop_loss * 2 * 10 * symbol_info.trade_tick_size, symbol_info.digits)
         else:
             str_message["Price"] = symbol_info.bid
-            str_message["SL Price"] = round(symbol_info.ask + stop_loss * 10 * symbol_info.trade_tick_size, symbol_info.digits)
+            str_message["SL Price"] = max(round(symbol_info.ask + stop_loss * 10 * symbol_info.trade_tick_size, symbol_info.digits), 0)
             str_message["TP Price"] = round(symbol_info.bid - stop_loss * 2 * 10 * symbol_info.trade_tick_size, symbol_info.digits)
        
+      
      
         df_core = df_core[["daily_range", "ADR", "SL"]]
         
@@ -167,85 +251,85 @@ class BaseStrategy(ABC):
         df["SL"] = df_merged["SL"]
         return str_message, df
 
-    def get_entry_signal(self, time):
+    def get_entry_signal(self, data: pd.DataFrame):
         """
         Entry signal
-        :param time: TimeStamp of the row
-        :return: Entry signal of the row and entry time
+        :param data: DataFrame with market data including Signal column
+        :return: Entry signal of the current row and entry time
         """
-        # If we are in the first or second columns, we do nothing
-        if len(self.data.loc[:time]) < 2:
-            return 0, self.entry_time
+        # If we are in the first or second rows, we do nothing
+        if len(data) < 2:
+            return 0, None
 
         # Create entry signal --> -1,0,1
         entry_signal = 0
-        if self.data.loc[:time]["Signal"].iloc[-2] == 1:
+        if data["Signal"].iloc[-2] == 1:
             entry_signal = 1
-        elif self.data.loc[:time]["Signal"].iloc[-2] == -1:
+        elif data["Signal"].iloc[-2] == -1:
             entry_signal = -1
 
         # Enter in buy position only if we want to, and we aren't already
         if entry_signal == 1: # and not self.buy and not self.sell:
             self.buy = True
-            self.open_buy_price = self.data.loc[time]["Open"]
-            self.entry_time = time
+            self.open_buy_price = data["Open"].iloc[-1]
+            self.entry_time = data.index[-1]
 
-        # Enter in buy position only if we want to, and we aren't already
+        # Enter in sell position only if we want to, and we aren't already
         elif entry_signal == -1: # and not self.sell and not self.buy:
             self.sell = True
-            self.open_sell_price = self.data.loc[time]["Open"]
-            self.entry_time = time
+            self.open_sell_price = data["Open"].iloc[-1]
+            self.entry_time = data.index[-1]
 
         else:
             entry_signal = 0
 
         return entry_signal, self.entry_time
 
-    def get_exit_signal(self, time):
+    def get_exit_signal(self, data: pd.DataFrame):
         """
         Take-profit & Stop-loss exit signal
-        :param time: TimeStamp of the row
-        :return: P&L of the position IF we close it
+        :param data: DataFrame with market data including High, Low, High_time, Low_time columns
+        :return: P&L of the position IF we close it and exit time
 
         **ATTENTION**: If you allow your bot to take a buy and a sell position in the same time,
         you need to return 2 values position_return_buy AND position_return_sell (and sum both for each day)
         """
         # Verify if we need to close a position and update the variations IF we are in a buy position
         if self.buy:
-            self.var_buy_high = (self.data.loc[time]["High"] - self.open_buy_price) / self.open_buy_price
-            self.var_buy_low = (self.data.loc[time]["Low"] - self.open_buy_price) / self.open_buy_price
+            self.var_buy_high = (data["High"].iloc[-1] - self.open_buy_price) / self.open_buy_price
+            self.var_buy_low = (data["Low"].iloc[-1] - self.open_buy_price) / self.open_buy_price
 
             # Let's check if AT LEAST one of our threshold are touched on this row
             if (self.tp < self.var_buy_high) and (self.var_buy_low < self.sl):
 
                 # Close with a positive P&L if high_time is before low_time
-                if self.data.loc[time]["High_time"] < self.data.loc[time]["Low_time"]:
+                if data["High_time"].iloc[-1] < data["Low_time"].iloc[-1]:
                     self.buy = False
                     self.open_buy_price = None
                     position_return_buy = (self.tp - self.cost) * self.leverage
-                    self.exit_time = time
+                    self.exit_time = data.index[-1]
                     return position_return_buy, self.exit_time
 
                 # Close with a negative P&L if low_time is before high_time
-                elif self.data.loc[time]["Low_time"] < self.data.loc[time]["High_time"]:
+                elif data["Low_time"].iloc[-1] < data["High_time"].iloc[-1]:
                     self.buy = False
                     self.open_buy_price = None
                     position_return_buy = (self.sl - self.cost) * self.leverage
-                    self.exit_time = time
+                    self.exit_time = data.index[-1]
                     return position_return_buy, self.exit_time
 
                 else:
                     self.buy = False
                     self.open_buy_price = None
                     position_return_buy = 0
-                    self.exit_time = time
+                    self.exit_time = data.index[-1]
                     return position_return_buy, self.exit_time
 
             elif self.tp < self.var_buy_high:
                 self.buy = False
                 self.open_buy_price = None
                 position_return_buy = (self.tp - self.cost) * self.leverage
-                self.exit_time = time
+                self.exit_time = data.index[-1]
                 return position_return_buy, self.exit_time
 
             # Close with a negative P&L if low_time is before high_time
@@ -253,38 +337,38 @@ class BaseStrategy(ABC):
                 self.buy = False
                 self.open_buy_price = None
                 position_return_buy = (self.sl - self.cost) * self.leverage
-                self.exit_time = time
+                self.exit_time = data.index[-1]
                 return position_return_buy, self.exit_time
 
         # Verify if we need to close a position and update the variations IF we are in a sell position
         if self.sell:
-            self.var_sell_high = -(self.data.loc[time]["High"] - self.open_sell_price) / self.open_sell_price
-            self.var_sell_low = -(self.data.loc[time]["Low"] - self.open_sell_price) / self.open_sell_price
+            self.var_sell_high = -(data["High"].iloc[-1] - self.open_sell_price) / self.open_sell_price
+            self.var_sell_low = -(data["Low"].iloc[-1] - self.open_sell_price) / self.open_sell_price
 
             # Let's check if AT LEAST one of our threshold are touched on this row
             if (self.tp < self.var_sell_low) and (self.var_sell_high < self.sl):
 
                 # Close with a positive P&L if high_time is before low_time
-                if self.data.loc[time]["Low_time"] < self.data.loc[time]["High_time"]:
+                if data["Low_time"].iloc[-1] < data["High_time"].iloc[-1]:
                     self.sell = False
                     self.open_sell_price = None
                     position_return_sell = (self.tp - self.cost) * self.leverage
-                    self.exit_time = time
+                    self.exit_time = data.index[-1]
                     return position_return_sell, self.exit_time
 
                 # Close with a negative P&L if low_time is before high_time
-                elif self.data.loc[time]["High_time"] < self.data.loc[time]["Low_time"]:
+                elif data["High_time"].iloc[-1] < data["Low_time"].iloc[-1]:
                     self.sell = False
                     self.open_sell_price = None
                     position_return_sell = (self.sl - self.cost) * self.leverage
-                    self.exit_time = time
+                    self.exit_time = data.index[-1]
                     return position_return_sell, self.exit_time
 
                 else:
                     self.sell = False
                     self.open_sell_price = None
                     position_return_sell = 0
-                    self.exit_time = time
+                    self.exit_time = data.index[-1]
                     return position_return_sell, self.exit_time
 
             # Close with a positive P&L if high_time is before low_time
@@ -292,7 +376,7 @@ class BaseStrategy(ABC):
                 self.sell = False
                 self.open_sell_price = None
                 position_return_sell = (self.tp - self.cost) * self.leverage
-                self.exit_time = time
+                self.exit_time = data.index[-1]
                 return position_return_sell, self.exit_time
 
             # Close with a negative P&L if low_time is before high_time
@@ -300,7 +384,7 @@ class BaseStrategy(ABC):
                 self.sell = False
                 self.open_sell_price = None
                 position_return_sell = (self.sl - self.cost) * self.leverage
-                self.exit_time = time
+                self.exit_time = data.index[-1]
                 return position_return_sell, self.exit_time
 
         return 0, None
