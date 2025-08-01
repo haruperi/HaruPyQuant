@@ -45,14 +45,6 @@ class TrendSwinglineCurrStrength(BaseStrategy):
         df_base = df_base[["Close", "swingline", "swingvalue"]].copy()
         df_quote = df_quote[["Close", "swingline", "swingvalue"]].copy()
 
-        # Shift by 1 row to avoid look ahead bias
-        # df_base["Close"] = df_base["Close"].shift(1)
-        # df_quote["Close"] = df_quote["Close"].shift(1)
-        # df_base["swingline"] = df_base["swingline"].shift(1)
-        # df_quote["swingline"] = df_quote["swingline"].shift(1)
-        # df_base["swingvalue"] = df_base["swingvalue"].shift(1)
-        # df_quote["swingvalue"] = df_quote["swingvalue"].shift(1)
-
 
         df_base = df_base.dropna()
         df_quote = df_quote.dropna()
@@ -82,7 +74,7 @@ class TrendSwinglineCurrStrength(BaseStrategy):
         curr_index_df.loc[strong_sell, 'Strength'] = -3
         curr_index_df.loc[mid_sell, 'Strength'] = -2
         curr_index_df.loc[weak_sell, 'Strength'] = -1
-        curr_index_df['Strength'] = curr_index_df['Strength'].shift(1)
+        curr_index_df['Strength'] = curr_index_df['Strength'].shift(1)   # Shift by 1 row to avoid look ahead bias
 
         curr_index_df = curr_index_df[["Strength"]]
         data = data.merge(curr_index_df, left_index=True, right_index=True, how='left')

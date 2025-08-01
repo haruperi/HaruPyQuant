@@ -117,215 +117,189 @@ if __name__ == "__main__":
 
 
     mt5_client = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=FOREX_SYMBOLS, broker=BROKER)
-    for symbol in FOREX_SYMBOLS:
-        try:
-           
-            symbol_info = mt5_client.get_symbol_info(symbol)
+    symbol = TEST_SYMBOL
+    try:
+        
+        symbol_info = mt5_client.get_symbol_info(symbol)
+        
+        # Fetch data using keyword arguments
+        # data = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=DEFAULT_TIMEFRAME, start_date=START_DATE, end_date=END_DATE)
+        # data_htf = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=HIGHER_TIMEFRAME, start_date=START_DATE, end_date=END_DATE)
+        # data_core = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=CORE_TIMEFRAME, start_date=START_DATE_CORE, end_date=END_DATE)
+
+        data = mt5_client.fetch_data(symbol=symbol, timeframe=DEFAULT_TIMEFRAME, start_pos=START_POS, end_pos=END_POS)
+        data_htf = mt5_client.fetch_data(symbol=symbol, timeframe=HIGHER_TIMEFRAME, start_pos=START_POS, end_pos=END_POS_HTF)
+        data_core = mt5_client.fetch_data(symbol=symbol, timeframe=CORE_TIMEFRAME, start_pos=START_POS, end_pos=END_POS_D1)
+
+        if data is None or data_htf is None or data_core is None:
+            logger.error("Failed to fetch data for one or more timeframes.")
+
+
+    except Exception as e:
+        logger.error(f"Error fetching data: {e}")
+
+
+    strategy = 4
+
+    # 2. Generate the trading signals
+    if data is not None and not data.empty and data_core is not None and not data_core.empty:
+        # Random Strategy
+        if strategy == 1:
+            random_strategy = RandomStrategy(mt5_client, parameters={"take_profit_pips": 80, "stop_loss_pips": 40})
+            data = random_strategy.get_features(data)
+            str_message, data = random_strategy.get_trade_parameters(data, data_core, 1, symbol_info)
+
+            print(f"SIGNAL DATA for {symbol}:")
+            print(data[data["Signal"] != 0])
+            print("TRADING PARAMETERS:")
+            print(str_message)
+
+
+        # Naive Trend Strategy
+        elif strategy == 2:
+            naive_trend_strategy = NaiveTrendStrategy(mt5_client, parameters={"fast_ema_period": 12, "slow_ema_period": 24, "bias_ema_period": 72, "take_profit_pips": 40, "stop_loss_pips": 20})
+            data = naive_trend_strategy.get_features(data)
+            str_message, data = naive_trend_strategy.get_trade_parameters(data, data_core, 1, symbol_info)
+         
+            print(f"SIGNAL DATA for {symbol}:")
+            print(data[data["Signal"] != 0])
+            print("TRADING PARAMETERS:")
+            print(str_message)
+
+
+        # Harriet Strategy
+        elif strategy == 3:
+            harriet_strategy = HarrietStrategy(mt5_client, parameters={"ht_min_dist": 5, "lt_min_dist": 2})
+            data = harriet_strategy.get_features(data, data_htf, ht_min_dist=5, lt_min_dist=2, symbol_info=symbol_info)
+            str_message, data = harriet_strategy.get_trade_parameters(data, data_core, 1, symbol_info)
+
+            print("SIGNAL DATA:")
+            print(data[data["Signal"] != 0])
+            print("TRADING PARAMETERS:")
+            print(str_message)
+          
+
+        # Trend Swingline MTF Strategy
+        elif strategy == 4:
+            trend_swingline_mtf_strategy = TrendSwinglineMTF(mt5_client, symbol_info, parameters={})
+            trigger_signal, data = trend_swingline_mtf_strategy.get_trigger_signal(data)
+            data = trend_swingline_mtf_strategy.get_features(data, data_htf)
+            entry_signal, entry_time = trend_swingline_mtf_strategy.get_entry_signal(data)
+            str_message, data = trend_swingline_mtf_strategy.get_trade_parameters(data, data_core, trigger_signal, symbol_info)
+                
+        # Trend Swingline Curr Strength Strategy
+        elif strategy == 5:
+            trend_swingline_curr_strength_strategy = TrendSwinglineCurrStrength(mt5_client, symbol_info, parameters={})
+            trigger_signal, data = trend_swingline_curr_strength_strategy.get_trigger_signal(data)
+
+            # Get base and quote currency symbols
+            base_currency_symbol = f"{symbol[:3]}X"
+            quote_currency_symbol = f"{symbol[3:]}X"
             
-            # Fetch data using keyword arguments
-            # data = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=DEFAULT_TIMEFRAME, start_date=START_DATE, end_date=END_DATE)
-            # data_htf = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=HIGHER_TIMEFRAME, start_date=START_DATE, end_date=END_DATE)
-            # data_core = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=CORE_TIMEFRAME, start_date=START_DATE_CORE, end_date=END_DATE)
+            # Get the corresponding dataframes from the index_dataframes dictionary
+            df_base = index_dataframes[base_currency_symbol]
+            df_quote = index_dataframes[quote_currency_symbol]
+            
+            # Get the features and signals and trade parameters
+            data = trend_swingline_curr_strength_strategy.get_features(data, df_base, df_quote)
+            entry_signal, entry_time = trend_swingline_curr_strength_strategy.get_entry_signal(data)
+            str_message, data = trend_swingline_curr_strength_strategy.get_trade_parameters(data, data_core, trigger_signal, symbol_info)
 
-            data = mt5_client.fetch_data(symbol=symbol, timeframe=DEFAULT_TIMEFRAME, start_pos=START_POS, end_pos=END_POS)
-            data_htf = mt5_client.fetch_data(symbol=symbol, timeframe=HIGHER_TIMEFRAME, start_pos=START_POS, end_pos=END_POS_HTF)
-            data_core = mt5_client.fetch_data(symbol=symbol, timeframe=CORE_TIMEFRAME, start_pos=START_POS, end_pos=END_POS_D1)
-
-            if data is None or data_htf is None or data_core is None:
-                logger.error("Failed to fetch data for one or more timeframes.")
-
-
-        except Exception as e:
-            logger.error(f"Error fetching data: {e}")
-
-
-     
-        
-
-        strategy = 5
-
-        # 2. Generate the trading signals
-        if data is not None and not data.empty and data_core is not None and not data_core.empty:
-            if strategy == 1:
-                random_strategy = RandomStrategy(mt5_client, parameters={"take_profit_pips": 80, "stop_loss_pips": 40})
-                data = random_strategy.get_features(data)
-                str_message, data = random_strategy.get_trade_parameters(data, data_core, 1, symbol_info)
-                if str_message is not None:
-                    print("SIGNAL DATA:")
-                    print(data[data["Signal"] != 0])
-                    print("TRADING PARAMETERS:")
-                    print(str_message)
-                else:
-                    logger.error("Error: Failed to get trade parameters for Random Strategy")
-
-            elif strategy == 2:
-                naive_trend_strategy = NaiveTrendStrategy(mt5_client, parameters={"fast_ema_period": 12, "slow_ema_period": 24, "bias_ema_period": 72, "take_profit_pips": 40, "stop_loss_pips": 20})
-                data = naive_trend_strategy.get_features(data)
-                str_message, data = naive_trend_strategy.get_trade_parameters(data, data_core, 1, symbol_info)
-                if str_message is not None:
-                    print("SIGNAL DATA:")
-                    print(data[data["Signal"] != 0])
-                    print("TRADING PARAMETERS:")
-                    print(str_message)
-                else:
-                    logger.error("Error: Failed to get trade parameters for Naive Trend Strategy")
-
-            elif strategy == 3:
-                harriet_strategy = HarrietStrategy(mt5_client, parameters={"ht_min_dist": 5, "lt_min_dist": 2})
-                data = harriet_strategy.get_features(data, data_htf, ht_min_dist=5, lt_min_dist=2, symbol_info=symbol_info)
-                str_message, data = harriet_strategy.get_trade_parameters(data, data_core, 1, symbol_info)
-                if str_message is not None:
-                    print("SIGNAL DATA:")
-                    print(data[data["Signal"] != 0])
-                    print("TRADING PARAMETERS:")
-                    print(str_message)
-                else:
-                    logger.error("Error: Failed to get trade parameters for Harriet Strategy")
-
-            elif strategy == 4:
-                trend_swingline_mtf_strategy = TrendSwinglineMTF(mt5_client, symbol_info, parameters={})
-                trigger_signal, data = trend_swingline_mtf_strategy.get_trigger_signal(data)
-
-                #if trigger_signal != 0:
-                if trigger_signal != 0:
-                    data = trend_swingline_mtf_strategy.get_features(data, data_htf)
-                    entry_signal, entry_time = trend_swingline_mtf_strategy.get_entry_signal(data)
-
-                    if entry_signal != 0:
-                        str_message, data = trend_swingline_mtf_strategy.get_trade_parameters(data, data_core, trigger_signal, symbol_info)
-                        if str_message is not None:
-                            print("SIGNAL DATA:")
-                            print(data)
-                            print("TRADING PARAMETERS:")
-                            print(str_message)
-                        else:
-                            logger.error("Error: Failed to get trade parameters for Trend Swingline MTF Strategy for symbol: {symbol}")
-                    else:
-                        logger.info(f"No entry signal found for Trend Swingline MTF Strategy for symbol: {symbol}")
-                else:
-                    logger.info(f"No trigger signal found for Trend Swingline MTF Strategy for symbol: {symbol}")
-
-            elif strategy == 5:
-                trend_swingline_curr_strength_strategy = TrendSwinglineCurrStrength(mt5_client, symbol_info, parameters={})
-                trigger_signal, data = trend_swingline_curr_strength_strategy.get_trigger_signal(data)
-
-                if trigger_signal != 0:
-                    # Get base and quote currency symbols
-                    base_currency_symbol = f"{symbol[:3]}X"
-                    quote_currency_symbol = f"{symbol[3:]}X"
-                    
-                    # Get the corresponding dataframes from the index_dataframes dictionary
-                    if base_currency_symbol in index_dataframes:
-                        df_base = index_dataframes[base_currency_symbol]
-                    else:
-                        logger.error(f"Base currency {base_currency_symbol} not found in index data")
-                        df_base = None
-                        
-                    if quote_currency_symbol in index_dataframes:
-                        df_quote = index_dataframes[quote_currency_symbol]
-                    else:
-                        logger.error(f"Quote currency {quote_currency_symbol} not found in index data")
-                        df_quote = None
-
-                    data = trend_swingline_curr_strength_strategy.get_features(data, df_base, df_quote)
-                    entry_signal, entry_time = trend_swingline_curr_strength_strategy.get_entry_signal(data)
-
-                    if entry_signal != 0:
-                        str_message, data = trend_swingline_curr_strength_strategy.get_trade_parameters(data, data_core, trigger_signal, symbol_info)
-                        if str_message is not None:
-                            print(f"SIGNAL DATA for {symbol}:")
-                            print(data)
-                            print("TRADING PARAMETERS:")
-                            print(str_message)
-                        else:
-                            logger.error("Error: Failed to get trade parameters for Trend Swingline Curr Strength Strategy for symbol: {symbol}")
-                    else:
-                        logger.info(f"No entry signal found for Trend Swingline Curr Strength Strategy for symbol: {symbol}")
-                else:
-                    logger.info(f"No trigger signal found for Trend Swingline Curr Strength Strategy for symbol: {symbol}")
-
-        # 3. Run the backtest
-        # print("Starting backtest...")
-        
-        # # Check if data is valid before running backtest
-        # if data is None or data.empty:
-        #     logger.error("Error: No valid data for backtesting. Please check your strategy parameters and data.")
-        #     sys.exit()
-        
-        # # Check if data has required columns for backtesting
-        # required_columns = ['Open', 'High', 'Low', 'Close', 'Volume', 'Signal']
-        # missing_columns = [col for col in required_columns if col not in data.columns]
-        # if missing_columns:
-        #     logger.error(f"Error: Missing required columns for backtesting: {missing_columns}")
-        #     sys.exit()
-        
-        # # Set class variables for the strategy
-        # BackTradeStrategy.mt5_client = mt5_client
-        # BackTradeStrategy.symbol_info = symbol_info
-        # BackTradeStrategy.risk_manager = RiskManager(mt5_client)
-        
-        # bt = Backtest(
-        #     data,
-        #     BackTradeStrategy,
-        #     cash=INITIAL_CAPITAL,
-        #     spread=SPREAD,
-        #     commission=.0002, # Example commission
-        #     margin=MARGIN,
-        #     exclusive_orders=True
-        # )
-
-        # stats = bt.run()
-        # print("\n--- Backtest Results ---")
-        # print(stats)
-        
-        # # Rearrange and print trades with desired column order
-        # rearranged_trades = rearrange_trades_columns(stats._trades)
-        # print("\n--- Trades (Rearranged Columns) ---")
-        # print(rearranged_trades)
+    
+        print(f"SIGNAL DATA for {symbol}:")
+        print("LAST TRADING PARAMETERS:")
+        print(str_message)
+        # Print andSave the signal data to a CSV file
+        signal_data = data[data["Signal"] != 0]
+        print(signal_data)
+        signal_data.to_csv(f"{DATA_DIR}/{symbol}-signals.csv")
 
 
-        # # print("\nPlotting results and saving to CSV...")
-        # bt.plot(filename=os.path.join(BACKTESTS_DIR, "Backtrader"))
-        #data.to_csv(f"{DATA_DIR}/combined_signals.csv")
 
-        # # Optimize the strategy with heatmap to see all results
-        # print("Running optimization...")
-        # optimized_bt, heatmap = bt.optimize(
-        #     take_profit_pips=range(10, 50, 5), 
-        #     stop_loss_pips=range(10, 50, 5),
-        #     return_heatmap=True,
-        #     maximize='Return [%]'  # Maximize return percentage instead of SQN
-        # )
-        
-        # print("\n=== OPTIMIZATION RESULTS (PROFIT MAXIMIZATION) ===")
-        # print("Best Parameters:")
-        # print(f"  Take Profit Pips: {optimized_bt['_strategy'].take_profit_pips}")
-        # print(f"  Stop Loss Pips: {optimized_bt['_strategy'].stop_loss_pips}")
-        # print("\nBest Performance:")
-        # print(optimized_bt)
-        
-        # print("\n=== TOP 10 PROFITABLE PARAMETER COMBINATIONS ===")
-        # # Sort heatmap by return percentage and show top 10
-        # sorted_results = heatmap.sort_values(ascending=False)
-        # print("Rank | Take Profit | Stop Loss | Return [%]")
-        # print("-" * 45)
-        # for i, (params, score) in enumerate(sorted_results.head(10).items(), 1):
-        #     tp, sl = params
-        #     print(f"{i:4d} | {tp:11d} | {sl:9d} | {score:.4f}")
-        
-        # print(f"\nTotal parameter combinations tested: {len(heatmap)}")
-        
-        # # Also show the best combination by absolute profit
-        # print("\n=== BEST ABSOLUTE PROFIT ===")
-        # # Run optimization with absolute profit maximization
-        # optimized_bt_profit, heatmap_profit = bt.optimize(
-        #     take_profit_pips=[10, 15, 20, 25, 30, 35, 40, 45, 50], 
-        #     stop_loss_pips=[10, 15, 20, 25, 30, 35, 40, 45, 50],
-        #     return_heatmap=True,
-        #     maximize='Equity Final [$]'  # Maximize absolute profit
-        # )
-        # print("Best Parameters for Absolute Profit:")
-        # print(f"  Take Profit Pips: {optimized_bt_profit['_strategy'].take_profit_pips}")
-        # print(f"  Stop Loss Pips: {optimized_bt_profit['_strategy'].stop_loss_pips}")
-        # print(f"  Final Equity: ${optimized_bt_profit['Equity Final [$]']:.2f}")
-        # print(f"  Return: {optimized_bt_profit['Return [%]']:.2f}%")
+
+
+    # 3. Run the backtest
+    # print("Starting backtest...")
+    
+    # # Check if data is valid before running backtest
+    # if data is None or data.empty:
+    #     logger.error("Error: No valid data for backtesting. Please check your strategy parameters and data.")
+    #     sys.exit()
+    
+    # # Check if data has required columns for backtesting
+    # required_columns = ['Open', 'High', 'Low', 'Close', 'Volume', 'Signal']
+    # missing_columns = [col for col in required_columns if col not in data.columns]
+    # if missing_columns:
+    #     logger.error(f"Error: Missing required columns for backtesting: {missing_columns}")
+    #     sys.exit()
+    
+    # # Set class variables for the strategy
+    # BackTradeStrategy.mt5_client = mt5_client
+    # BackTradeStrategy.symbol_info = symbol_info
+    # BackTradeStrategy.risk_manager = RiskManager(mt5_client)
+    
+    # bt = Backtest(
+    #     data,
+    #     BackTradeStrategy,
+    #     cash=INITIAL_CAPITAL,
+    #     spread=SPREAD,
+    #     commission=.0002, # Example commission
+    #     margin=MARGIN,
+    #     exclusive_orders=True
+    # )
+
+    # stats = bt.run()
+    # print("\n--- Backtest Results ---")
+    # print(stats)
+    
+    # # Rearrange and print trades with desired column order
+    # rearranged_trades = rearrange_trades_columns(stats._trades)
+    # print("\n--- Trades (Rearranged Columns) ---")
+    # print(rearranged_trades)
+
+
+    # # print("\nPlotting results and saving to CSV...")
+    # bt.plot(filename=os.path.join(BACKTESTS_DIR, "Backtrader"))
+    #data.to_csv(f"{DATA_DIR}/combined_signals.csv")
+
+    # # Optimize the strategy with heatmap to see all results
+    # print("Running optimization...")
+    # optimized_bt, heatmap = bt.optimize(
+    #     take_profit_pips=range(10, 50, 5), 
+    #     stop_loss_pips=range(10, 50, 5),
+    #     return_heatmap=True,
+    #     maximize='Return [%]'  # Maximize return percentage instead of SQN
+    # )
+    
+    # print("\n=== OPTIMIZATION RESULTS (PROFIT MAXIMIZATION) ===")
+    # print("Best Parameters:")
+    # print(f"  Take Profit Pips: {optimized_bt['_strategy'].take_profit_pips}")
+    # print(f"  Stop Loss Pips: {optimized_bt['_strategy'].stop_loss_pips}")
+    # print("\nBest Performance:")
+    # print(optimized_bt)
+    
+    # print("\n=== TOP 10 PROFITABLE PARAMETER COMBINATIONS ===")
+    # # Sort heatmap by return percentage and show top 10
+    # sorted_results = heatmap.sort_values(ascending=False)
+    # print("Rank | Take Profit | Stop Loss | Return [%]")
+    # print("-" * 45)
+    # for i, (params, score) in enumerate(sorted_results.head(10).items(), 1):
+    #     tp, sl = params
+    #     print(f"{i:4d} | {tp:11d} | {sl:9d} | {score:.4f}")
+    
+    # print(f"\nTotal parameter combinations tested: {len(heatmap)}")
+    
+    # # Also show the best combination by absolute profit
+    # print("\n=== BEST ABSOLUTE PROFIT ===")
+    # # Run optimization with absolute profit maximization
+    # optimized_bt_profit, heatmap_profit = bt.optimize(
+    #     take_profit_pips=[10, 15, 20, 25, 30, 35, 40, 45, 50], 
+    #     stop_loss_pips=[10, 15, 20, 25, 30, 35, 40, 45, 50],
+    #     return_heatmap=True,
+    #     maximize='Equity Final [$]'  # Maximize absolute profit
+    # )
+    # print("Best Parameters for Absolute Profit:")
+    # print(f"  Take Profit Pips: {optimized_bt_profit['_strategy'].take_profit_pips}")
+    # print(f"  Stop Loss Pips: {optimized_bt_profit['_strategy'].stop_loss_pips}")
+    # print(f"  Final Equity: ${optimized_bt_profit['Equity Final [$]']:.2f}")
+    # print(f"  Return: {optimized_bt_profit['Return [%]']:.2f}%")
