@@ -89,5 +89,8 @@ pandas-ta>=0.3.14b
 # Crypto related
 ccxt
 
-
 sambo
+
+# News Sentiment
+selenium
+webdriver-manager
