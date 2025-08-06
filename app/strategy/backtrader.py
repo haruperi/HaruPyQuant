@@ -15,7 +15,11 @@ from .bench_naive_trend import NaiveTrendStrategy
 from .harriet import HarrietStrategy
 from .trend_swingline_mtf import TrendSwinglineMTF
 from .trend_swingline_curr_strength import TrendSwinglineCurrStrength
+from .mean_reversion_hod_lod import MeanReversionHODLOD
 from app.util.helper import rearrange_trades_columns
+
+logger = get_logger(__name__)
+
 
 class BackTradeStrategy(Strategy):
     """
@@ -95,6 +99,21 @@ class BackTradeStrategy(Strategy):
 if __name__ == "__main__":
     
     # --- Get Data ---
+    
+    logger.info(f"Fetching data for {TEST_SYMBOL} {DEFAULT_TIMEFRAME} from {START_DATE} to {END_DATE}")
+    start_str = START_DATE.strftime("%Y-%m-%d") if START_DATE else None
+    end_str = END_DATE.strftime("%Y-%m-%d") if END_DATE else None
+            
+    if not start_str or not end_str:
+        logger.error("start_date and end_date are required for date mode")
+    else:
+        start_dt = datetime.strptime(start_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
+        end_dt = datetime.strptime(end_str, "%Y-%m-%d").replace(tzinfo=timezone.utc).date()
+                
+    start_of_day = datetime(start_dt.year, start_dt.month, start_dt.day, 0, 0, 0, tzinfo=timezone.utc)  # 00:00:00
+    end_of_day = datetime(end_dt.year, end_dt.month, end_dt.day, 23, 59, 59, 999999, tzinfo=timezone.utc)    # 23:59:59.999999
+
+
     # Initialize secondary MT5 client for index data (broker 3 - Purple Trading)
     mt5_client_indices = MT5Client(config_path=DEFAULT_CONFIG_PATH, symbols=INDEX_SYMBOLS, broker=3)
     
@@ -110,7 +129,8 @@ if __name__ == "__main__":
         # Store index dataframes in a dictionary
         index_dataframes = {}
         for index in INDEX_SYMBOLS:
-            index_dataframes[index] = mt5_client_indices.fetch_data(index, "H1", start_pos=START_POS, end_pos=END_POS_HTF)
+            #index_dataframes[index] = mt5_client_indices.fetch_data(index, "H1", start_pos=START_POS, end_pos=END_POS_HTF)
+            index_dataframes[index] = mt5_client_indices.fetch_data(index, "H1", start_date=start_of_day, end_date=end_of_day)
             logger.info(f"Fetched {index} data: {index_dataframes[index].shape if index_dataframes[index] is not None else 'None'}")
         
     mt5_client_indices.shutdown()
@@ -123,13 +143,16 @@ if __name__ == "__main__":
         symbol_info = mt5_client.get_symbol_info(symbol)
         
         # Fetch data using keyword arguments
-        # data = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=DEFAULT_TIMEFRAME, start_date=START_DATE, end_date=END_DATE)
-        # data_htf = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=HIGHER_TIMEFRAME, start_date=START_DATE, end_date=END_DATE)
-        # data_core = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=CORE_TIMEFRAME, start_date=START_DATE_CORE, end_date=END_DATE)
+        data = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=DEFAULT_TIMEFRAME, start_date=start_of_day, end_date=end_of_day)
+        data_htf = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=HIGHER_TIMEFRAME, start_date=start_of_day, end_date=end_of_day)
+        data_core = mt5_client.fetch_data(symbol=TEST_SYMBOL, timeframe=CORE_TIMEFRAME, start_date=START_DATE_CORE, end_date=END_DATE)
 
-        data = mt5_client.fetch_data(symbol=symbol, timeframe=DEFAULT_TIMEFRAME, start_pos=START_POS, end_pos=END_POS)
-        data_htf = mt5_client.fetch_data(symbol=symbol, timeframe=HIGHER_TIMEFRAME, start_pos=START_POS, end_pos=END_POS_HTF)
-        data_core = mt5_client.fetch_data(symbol=symbol, timeframe=CORE_TIMEFRAME, start_pos=START_POS, end_pos=END_POS_D1)
+        print(data)
+
+
+        #data = mt5_client.fetch_data(symbol=symbol, timeframe=DEFAULT_TIMEFRAME, start_pos=START_POS, end_pos=END_POS)
+        #data_htf = mt5_client.fetch_data(symbol=symbol, timeframe=HIGHER_TIMEFRAME, start_pos=START_POS, end_pos=END_POS_HTF)
+        #data_core = mt5_client.fetch_data(symbol=symbol, timeframe=CORE_TIMEFRAME, start_pos=START_POS, end_pos=END_POS_D1)
 
         if data is None or data_htf is None or data_core is None:
             logger.error("Failed to fetch data for one or more timeframes.")
@@ -139,7 +162,7 @@ if __name__ == "__main__":
         logger.error(f"Error fetching data: {e}")
 
 
-    strategy = 4
+    strategy = 6
 
     # 2. Generate the trading signals
     if data is not None and not data.empty and data_core is not None and not data_core.empty:
@@ -205,12 +228,23 @@ if __name__ == "__main__":
             entry_signal, entry_time = trend_swingline_curr_strength_strategy.get_entry_signal(data)
             str_message, data = trend_swingline_curr_strength_strategy.get_trade_parameters(data, data_core, trigger_signal, symbol_info)
 
+        # Mean Reversion HOD/LOD Strategy
+        elif strategy == 6:
+            mean_reversion_hod_lod_strategy = MeanReversionHODLOD(mt5_client, symbol_info, parameters={})
+            trigger_signal, data = mean_reversion_hod_lod_strategy.get_trigger_signal(data)
+            data = mean_reversion_hod_lod_strategy.get_features(data)
+            # entry_signal, entry_time = mean_reversion_hod_lod_strategy.get_entry_signal(data)
+            # str_message, data = mean_reversion_hod_lod_strategy.get_trade_parameters(data, data_core, trigger_signal, symbol_info)
+
     
         print(f"SIGNAL DATA for {symbol}:")
         print("LAST TRADING PARAMETERS:")
-        print(str_message)
+        #print(str_message)
         # Print andSave the signal data to a CSV file
         signal_data = data[data["Signal"] != 0]
+
+        #Filter signal data by time, only show signals from 09:00 to 18:00
+        signal_data = signal_data[(signal_data.index.hour >= 9) & (signal_data.index.hour <= 18)]
         print(signal_data)
         signal_data.to_csv(f"{DATA_DIR}/{symbol}-signals.csv")
 

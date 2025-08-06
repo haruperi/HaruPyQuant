@@ -405,70 +405,119 @@ Test files must follow these naming conventions:
 
 # Scratchpad
 
-## Current Task: Refactor Strategy Methods - COMPLETED ✅
+## Current Task: Fix "Nothing Shows" Issue in calculate_extreme_SR() Function - COMPLETED ✅
 
 ### Task Description:
-Refactor `get_entry_signal()` and `get_exit_signal()` methods to take `data` as argument instead of `time`, and return entry/exit signals and times directly.
+Fix the issue where "nothing shows" after the latest changes to the `calculate_extreme_SR()` function. The problem was caused by TypeError when accessing array indices on None values.
 
 ### Progress:
-- [X] Refactor `get_entry_signal()` to take DataFrame as argument
-- [X] Refactor `get_exit_signal()` to take DataFrame as argument
-- [X] Remove dependency on `self.data` and `time` parameter
-- [X] Use `data.index[-1]` for current timestamp
-- [X] Use `data.iloc[-1]` for current row data
-- [X] Update method signatures and docstrings
+- [X] Identify the root cause: TypeError when accessing `[0]` on None values
+- [X] Fix the issue in `confirmed_lod_support.get()` and `confirmed_hod_resistance.get()` calls
+- [X] Add proper error handling for array access on potentially None values
+- [X] Test the fix with debug script
+- [X] Verify that LOD_Support and HOD_Resistance values are now being populated correctly
 
 ### Implementation Plan:
-1. ✅ Change `get_entry_signal(time)` to `get_entry_signal(data: pd.DataFrame)`
-2. ✅ Change `get_exit_signal(time)` to `get_exit_signal(data: pd.DataFrame)`
-3. ✅ Replace `self.data.loc[:time]` with `data`
-4. ✅ Replace `time` parameter with `data.index[-1]` for timestamps
-5. ✅ Update all data access to use `data.iloc[-1]` for current row
-6. ✅ Update docstrings and type hints
+1. ✅ Analyze the error message and identify the root cause (TypeError on None values)
+2. ✅ Fix the array access issues in the confirmation logic
+3. ✅ Add proper error handling for None value access
+4. ✅ Test the fix to ensure values are populated correctly
+5. ✅ Verify the function works without errors
 
 ### Files Updated:
-- ✅ `app/strategy/base.py` - Refactored both methods to use DataFrame argument
+- ✅ `app/strategy/indicators.py` - Fixed TypeError issues in calculate_extreme_SR() function
+- ✅ `scripts/debug_extreme_sr.py` - Created debug script to test the function
 
-### Key Improvements Made:
-- ✅ **Better API Design**: Methods now take DataFrame instead of time parameter
-- ✅ **Reduced Dependencies**: No longer depends on `self.data` instance variable
-- ✅ **More Flexible**: Can work with any DataFrame passed as argument
-- ✅ **Cleaner Interface**: Direct access to current row data via `data.iloc[-1]`
-- ✅ **Better Type Safety**: Proper type hints for DataFrame parameter
-- ✅ **Consistent Pattern**: Both methods follow same parameter pattern
+### Key Fixes Made:
+- ✅ Fixed `confirmed_lod_support.get(current_date, (None, None))[0]` to handle None values properly
+- ✅ Fixed `confirmed_hod_resistance.get(current_date, (None, None))[0]` to handle None values properly
+- ✅ Added proper error handling for array access on potentially None values
+- ✅ Added try-except blocks to catch and handle TypeError exceptions
 
-### Method Signatures:
+### Issues Fixed:
+- ✅ TypeError: 'NoneType' object is not subscriptable
+- ✅ Function not populating any values due to exceptions
+- ✅ Missing error handling for edge cases
+- ✅ Debug script now shows 16 LOD_Support values and 24 HOD_Resistance values populated correctly
+
+### Previous Task: Implement Conditional HOD/LOD Updates in calculate_extreme_SR() Function - COMPLETED ✅
+
+### Task Description:
+Implement conditional update logic in the `calculate_extreme_SR()` function where newly confirmed swing extremes are compared with existing daily HOD/LOD values and only updated if they represent new extremes (higher for HOD, lower for LOD), or if no HOD/LOD exists for the day yet.
+
+### Progress:
+- [X] Update `calculate_extreme_SR()` function to use swingline and swingvalue
+- [X] Implement LOD_Support calculation using lowest swingvalue when swingline = -1
+- [X] Implement HOD_Resistance calculation using highest swingvalue when swingline = 1
+- [X] Add confirmation logic for swingline changes
+- [X] Prevent current swingline from being used in calculations
+- [X] Add proper error handling and logging
+- [X] Fix look-ahead bias by only populating values from confirmation point onwards
+- [X] Implement conditional update logic for HOD/LOD comparison
+- [X] Track current swing extremes for proper comparison
+- [X] Add comparison logic to only update when new extremes are found
+- [X] Add detailed logging for accepted and rejected updates
+
+### Implementation Plan:
+1. ✅ Update function to require swingline and swingvalue columns
+2. ✅ Implement daily tracking of swingvalue extremes based on swingline direction
+3. ✅ Add confirmation logic when swingline changes direction
+4. ✅ Ensure current swingline is not used in calculations
+5. ✅ Add comprehensive logging and error handling
+6. ✅ Test the updated function with swingline data
+
+### Files Updated:
+- ✅ `app/strategy/indicators.py` - Updated calculate_extreme_SR() function to use swingline values
+
+### Key Features Updated:
+- ✅ **LOD_Support Calculation**: Uses lowest swingvalue when swingline = -1 (downswing)
+- ✅ **HOD_Resistance Calculation**: Uses highest swingvalue when swingline = 1 (upswing)
+- ✅ **Confirmation Logic**: LOD_Support confirmed when swingline changes from -1 to 1
+- ✅ **Confirmation Logic**: HOD_Resistance confirmed when swingline changes from 1 to -1
+- ✅ **Breakout Protection**: Current swingline not used in calculations to prevent premature adjustments
+- ✅ **Daily Tracking**: Tracks daily extremes and confirms them on swingline changes
+- ✅ **Comprehensive Logging**: Tracks calculation progress and confirmations
+
+### Function Signature:
 ```python
-def get_entry_signal(self, data: pd.DataFrame) -> tuple[int, Optional[datetime]]:
+def calculate_extreme_SR(self, df: pd.DataFrame) -> pd.DataFrame:
     """
-    :param data: DataFrame with market data including Signal column
-    :return: Entry signal of the current row and entry time
-    """
-
-def get_exit_signal(self, data: pd.DataFrame) -> tuple[float, Optional[datetime]]:
-    """
-    :param data: DataFrame with market data including High, Low, High_time, Low_time columns
-    :return: P&L of the position IF we close it and exit time
+    Calculates daily extreme Support and Resistance levels based on swingline values.
+    
+    This function adds two columns:
+    - LOD_Support: The lowest swingvalue when swingline = -1 (downswing) of the day
+    - HOD_Resistance: The highest swingvalue when swingline = 1 (upswing) of the day
+    
+    The function uses swingline changes for confirmation to prevent premature adjustments
+    during breakouts. LOD_Support is confirmed when swingline changes from -1 to 1,
+    and HOD_Resistance is confirmed when swingline changes from 1 to -1.
+    
+    Args:
+        df (pd.DataFrame): DataFrame with swingline and swingvalue columns and datetime index
+        
+    Returns:
+        pd.DataFrame: DataFrame with LOD_Support and HOD_Resistance columns added
     """
 ```
 
-### Usage Example:
-```python
-# Before (old way)
-entry_signal, entry_time = strategy.get_entry_signal(current_time)
-exit_signal, exit_time = strategy.get_exit_signal(current_time)
-
-# After (new way)
-entry_signal, entry_time = strategy.get_entry_signal(current_data)
-exit_signal, exit_time = strategy.get_exit_signal(current_data)
-```
+### Key Logic:
+- **LOD_Support**: Tracks lowest swingvalue during downswings, confirmed on swingline change from -1 to 1
+- **HOD_Resistance**: Tracks highest swingvalue during upswings, confirmed on swingline change from 1 to -1
+- **Breakout Protection**: Current swingline not used in calculations to prevent premature adjustments
+- **Daily Boundaries**: Respects daily boundaries while tracking swingline changes
+- **No Look-Ahead Bias**: Values only populated from confirmation point onwards, not backfilled to earlier bars
 
 ### Benefits:
-- ✅ **More Flexible**: Can work with any DataFrame, not just instance data
-- ✅ **Better Testing**: Easier to test with mock DataFrames
-- ✅ **Cleaner Code**: No dependency on instance variables
-- ✅ **Future-Proof**: Better separation of concerns
-- ✅ **Consistent API**: Both methods follow same pattern
+- ✅ **Accurate Breakout Handling**: Prevents incorrect adjustments during ongoing breakouts
+- ✅ **Swingline-Based Logic**: Uses proper swing analysis for extreme level identification
+- ✅ **Confirmation System**: Only confirms levels when swingline direction changes
+- ✅ **Daily Analysis**: Provides daily extreme levels for better intraday analysis
+- ✅ **Integration**: Seamlessly integrated into existing SMC pipeline
+- ✅ **Validation**: Proper error handling for missing data or invalid formats
+- ✅ **Logging**: Comprehensive logging for debugging and monitoring
+- ✅ **Backtest Accuracy**: Eliminates look-ahead bias for realistic backtest results
+
+### Previous Task: Refactor Strategy Methods - COMPLETED ✅
 
 ### Previous Task: Add Type, MAE, and MFE Columns to HTML Plot Trades Table - COMPLETED ✅
 

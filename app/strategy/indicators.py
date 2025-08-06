@@ -1060,12 +1060,15 @@ class SmartMoneyConcepts:
         LowestLow for downswings).
         - highest_low: The highest low point reached during the current upswing.
         - lowest_high: The lowest high point reached during the current downswing.
+        - HOD_swing: The highest ever swingvalue reached (all-time high).
+        - LOD_swing: The lowest ever swingvalue reached (all-time low).
+        - Reversal_Trigger: Reversal trigger indicator (1 for bearish reversal, -1 for bullish reversal, 0 for no trigger).
 
         Args:
             df (pd.DataFrame): Input DataFrame containing 'High' and 'Low' columns.
 
         Returns:
-            pd.DataFrame: The DataFrame with the four new columns added.
+            pd.DataFrame: The DataFrame with the seven new columns added.
         """
         if 'High' not in df.columns or 'Low' not in df.columns:
             logger.error("Input DataFrame must contain 'High' and 'Low' columns.")
@@ -1082,6 +1085,9 @@ class SmartMoneyConcepts:
         swing_value = [np.nan] * len(df)
         highest_low_col = [np.nan] * len(df)
         lowest_high_col = [np.nan] * len(df)
+        hod_swing_col = [np.nan] * len(df)
+        lod_swing_col = [np.nan] * len(df)
+        reversal_trigger_col = [0] * len(df)
 
         # --- Initialize State Variables from the first row ---
         # The logic starts with swing_direction = -1, so we begin in a downswing state.
@@ -1090,12 +1096,23 @@ class SmartMoneyConcepts:
         LowestLow = df['Low'].iloc[0]
         LowestHigh = df['High'].iloc[0]
         HighestLow = df['Low'].iloc[0]
+        
+        # Initialize HOD and LOD tracking
+        HOD_swing = LowestLow  # Start with the first swingvalue
+        LOD_swing = LowestLow  # Start with the first swingvalue
+        
+        # Initialize reversal trigger tracking
+        reversal_trigger = 0
 
         # --- Set initial values for the first row ---
         swingline[0] = swing_direction
         swing_value[0] = LowestLow  # In a downswing, swingvalue is LowestLow
         highest_low_col[0] = HighestLow
         lowest_high_col[0] = LowestHigh
+        hod_swing_col[0] = HOD_swing
+        lod_swing_col[0] = LOD_swing
+        reversal_trigger_col[0] = reversal_trigger
+ 
         
         # --- Process the rest of the DataFrame row by row ---
         for i in range(1, len(df)):
@@ -1114,6 +1131,7 @@ class SmartMoneyConcepts:
                     swing_direction = -1  # Change direction to downswing
                     LowestLow = low
                     LowestHigh = high
+
             else:  # swing_direction == -1
                 # --- LOGIC FOR AN ACTIVE DOWNSWING ---
                 if low < LowestLow:
@@ -1127,22 +1145,44 @@ class SmartMoneyConcepts:
                     HighestHigh = high
                     HighestLow = low
 
+            # Determine the current swingvalue based on the swing direction
+            current_swingvalue = HighestLow if swing_direction == 1 else LowestHigh
+            
+            # Update HOD and LOD tracking
+            if current_swingvalue > HOD_swing:
+                HOD_swing = current_swingvalue
+            if current_swingvalue < LOD_swing:
+                LOD_swing = current_swingvalue
+
+            # Check for reversal triggers
+            if swing_direction == -1:  # Downswing
+                if low < LOD_swing and reversal_trigger == 0:
+                    reversal_trigger = 1
+            elif swing_direction == 1:  # Upswing
+                if high > HOD_swing and reversal_trigger == 0:
+                    reversal_trigger = -1
+            
+            # Reset reversal trigger when swing direction changes
+            if i > 0 and swingline[i-1] != swing_direction:
+                reversal_trigger = 0
+
             # Append the current state to our lists
             swingline[i] = swing_direction
+            swing_value[i] = current_swingvalue
             highest_low_col[i] = HighestLow
             lowest_high_col[i] = LowestHigh
-            
-            # Determine the swingvalue based on the current swing direction
-            if swing_direction == 1:
-                swing_value[i] = HighestLow
-            else:
-                swing_value[i] = LowestHigh
+            hod_swing_col[i] = HOD_swing
+            lod_swing_col[i] = LOD_swing
+            reversal_trigger_col[i] = reversal_trigger
 
         # Add the lists as new columns to the DataFrame
         df['swingline'] = swingline
         df['swingvalue'] = swing_value
         df['highest_low'] = highest_low_col
         df['lowest_high'] = lowest_high_col
+        df['HOD_swing'] = hod_swing_col
+        df['LOD_swing'] = lod_swing_col
+        df['Reversal_Trigger'] = reversal_trigger_col
 
         logger.info(f"Finalizing swingline calculation. Final swingline: { df['swingline'].iloc[-1]}")
         
@@ -2052,6 +2092,7 @@ class SmartMoneyConcepts:
                    f"({bullish_signals} bullish, {bearish_signals} bearish) - each BOS level retested only once")
         
         return df
+
 
     def run_smc(self, df: pd.DataFrame) -> pd.DataFrame:
         """

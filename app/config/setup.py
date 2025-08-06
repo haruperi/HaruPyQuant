@@ -77,8 +77,8 @@ END_POS_HTF=int(END_POS/2)               # Data retrieval index ending point for
 END_POS_D1=ADR_PERIOD*3                 # Data retrieval index ending point for daily timeframe (whole last month)
 RANGE_START = datetime.now().strftime("%Y-%m-%d")         # Data retrieval range starting point
 RANGE_END = (datetime.now() - timedelta(days=END_POS_D1)).strftime("%Y-%m-%d")  # Data retrieval index starting point
-START_DATE = datetime(2025, 1, 1)     # Data retrieval date starting point
-END_DATE = datetime(2025, 6, 30)       # Data retrieval date ending point
+START_DATE = datetime(2025, 8, 5)     # Data retrieval date starting point
+END_DATE = datetime(2025, 8, 5)       # Data retrieval date ending point
 START_DATE_CORE = START_DATE - timedelta(days=15) # Remove 15 days for start date for df_core
 TEST_SYMBOL = "EURUSD"        # Random symbol for testing purposes
 DEFAULT_START_CANDLE = START_POS  # Default start position for data retrieval
