@@ -66,11 +66,11 @@ class NaiveTrendStrategy(BaseStrategy):
         slow_ema_col = f'ema_{slow_period}'
         bias_ema_col = f'ema_{bias_period}'
 
-        buy_crossover = (df[fast_ema_col].shift(1) <= df[slow_ema_col].shift(1)) & (df[fast_ema_col] > df[slow_ema_col])
+        buy_crossover = (df[fast_ema_col].shift(1) < df[slow_ema_col].shift(1)) & (df[fast_ema_col] > df[slow_ema_col])
         buy_bias = (df[fast_ema_col] > df[bias_ema_col]) & (df[slow_ema_col] > df[bias_ema_col])
         buy_condition = buy_crossover & buy_bias
 
-        sell_crossover = (df[fast_ema_col].shift(1) >= df[slow_ema_col].shift(1)) & (df[fast_ema_col] < df[slow_ema_col])
+        sell_crossover = (df[fast_ema_col].shift(1) > df[slow_ema_col].shift(1)) & (df[fast_ema_col] < df[slow_ema_col])
         sell_bias = (df[fast_ema_col] < df[bias_ema_col]) & (df[slow_ema_col] < df[bias_ema_col])
         sell_condition = sell_crossover & sell_bias
 

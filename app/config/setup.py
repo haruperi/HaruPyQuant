@@ -38,7 +38,7 @@ JBLANKED_API_KEY = config['JBLANKED']['API_KEY']
 MAX_DEVIATION = 5  # Maximum allowed deviation in points
 MAX_SLIPPAGE = 3  # Maximum allowed slippage in points
 MAGIC_NUMBER = 123456  # Unique identifier for trades placed by this EA
-INITIAL_CAPITAL = 275  # Initial balance for backtest
+INITIAL_CAPITAL = 10000  # Initial balance for backtest
 LOT_SIZE = 0.01  # Lot size for backtest
 RISK_PER_TRADE = 0.01  # Risk per trade in percentage
 MAX_POSITIONS = 5  # Maximum number of concurrent positions
@@ -97,7 +97,7 @@ LOG_LEVEL = "INFO"
 MONGO_DB_NAME = "haru_pyquant"
 MONGO_COLLECTION_NAME = "forex_sample"
 
-BROKER = 1
+BROKER = 2
 # Trading symbols by asset class
 
 # Currency indices available in broker 3
