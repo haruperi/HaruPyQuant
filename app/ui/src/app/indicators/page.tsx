@@ -64,6 +64,8 @@ export default function IndicatorsPage() {
   // =================================================================================
   const chartAreaRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [buyLoading, setBuyLoading] = useState(false);
+  const [sellLoading, setSellLoading] = useState(false);
   const ALL_SYMBOLS = [
     "AUDCAD", "AUDCHF", "AUDJPY", "AUDNZD", "AUDUSD",
     "CADCHF", "CADJPY", "CHFJPY",
@@ -102,6 +104,7 @@ export default function IndicatorsPage() {
     { label: "Number of Bars", value: "bars" },
     { label: "Date Range", value: "date" },
     { label: "Today", value: "today" },
+    { label: "Date", value: "single_date" },
   ];
   
   const [rangeMode, setRangeMode] = useState("today"); // default to today
@@ -109,6 +112,7 @@ export default function IndicatorsPage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [today, setToday] = useState('');
+  const [selectedDate, setSelectedDate] = useState('');
   const [symbol, setSymbol] = useState(ALL_SYMBOLS[0]);
   const [interval, setInterval] = useState(TIMEFRAMES[4].value); // default to 5 min
   const [selectedIndicators, setSelectedIndicators] = useState<string[]>([]);
@@ -232,6 +236,7 @@ export default function IndicatorsPage() {
     setToday(todayStr);
     if (!startDate) setStartDate(weekAgoStr);
     if (!endDate) setEndDate(todayStr);
+    if (!selectedDate) setSelectedDate(todayStr);
   }, []); // Run only once on mount
 
   useEffect(() => {
@@ -250,6 +255,12 @@ export default function IndicatorsPage() {
       setEndDate(todayStr);
     }
     
+    // Auto-set dates for "single_date" mode
+    if (rangeMode === "single_date") {
+      setStartDate(selectedDate);
+      setEndDate(selectedDate);
+    }
+    
     const paramsObj: Record<string, string> = {
       symbol,
       timeframe: interval,
@@ -258,7 +269,7 @@ export default function IndicatorsPage() {
     if (rangeMode === "bars") {
       paramsObj.bars = String(barCount);
     }
-    if (rangeMode === "date" || rangeMode === "today") {
+    if (rangeMode === "date" || rangeMode === "today" || rangeMode === "single_date") {
       paramsObj.start_date = startDate ? startDate.slice(0, 10) : '';
       paramsObj.end_date = endDate ? endDate.slice(0, 10) : '';
     }
@@ -286,7 +297,7 @@ export default function IndicatorsPage() {
       })
       .catch(e => console.error('SMC data fetch error:', e))
       .finally(() => setLoading(false));
-  }, [symbol, interval, rangeMode, barCount, startDate, endDate]);
+  }, [symbol, interval, rangeMode, barCount, startDate, endDate, selectedDate]);
 
   // =================================================================================
   // Fullscreen Logic
@@ -794,6 +805,77 @@ export default function IndicatorsPage() {
   };
 
   // =================================================================================
+  // Buy/Sell Functions
+  // =================================================================================
+  const handleBuy = async () => {
+    if (!symbol) {
+      alert('Please select a symbol first');
+      return;
+    }
+    
+    setBuyLoading(true);
+    try {
+      const response = await fetch('http://127.0.0.1:8001/api/trade', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          symbol: symbol,
+          action: 'buy',
+          volume: 0.01, // Default volume
+          type: 'market'
+        }),
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        alert(`Buy order placed successfully!\nOrder ID: ${result.order_id}\nSymbol: ${result.symbol}\nVolume: ${result.volume}\nDirection: ${result.direction}`);
+      } else {
+        alert(`Buy order failed: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      alert(`Error placing buy order: ${error}`);
+    } finally {
+      setBuyLoading(false);
+    }
+  };
+
+  const handleSell = async () => {
+    if (!symbol) {
+      alert('Please select a symbol first');
+      return;
+    }
+    
+    setSellLoading(true);
+    try {
+      const response = await fetch('http://127.0.0.1:8001/api/trade', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          symbol: symbol,
+          action: 'sell',
+          volume: 0.01, // Default volume
+          type: 'market'
+        }),
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        alert(`Sell order placed successfully!\nOrder ID: ${result.order_id}\nSymbol: ${result.symbol}\nVolume: ${result.volume}\nDirection: ${result.direction}`);
+      } else {
+        alert(`Sell order failed: ${result.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      alert(`Error placing sell order: ${error}`);
+    } finally {
+      setSellLoading(false);
+    }
+  };
+
+  // =================================================================================
   // Plotly Data and Layout
   // =================================================================================
   const plotlyData = [
@@ -1010,6 +1092,14 @@ export default function IndicatorsPage() {
               </select>
             ) : rangeMode === "today" ? (
               <span className="text-white text-sm">Today: {today}</span>
+            ) : rangeMode === "single_date" ? (
+              <input
+                type="date"
+                className="bg-[#181A20] text-white px-2 py-1 rounded border border-gray-700 text-sm"
+                value={selectedDate}
+                onChange={e => setSelectedDate(e.target.value)}
+                max={today}
+              />
             ) : (
               <>
                 <input
@@ -1029,6 +1119,33 @@ export default function IndicatorsPage() {
                 />
               </>
             )}
+            {/* Buy/Sell Buttons */}
+            <div className="flex gap-2 ml-4">
+              <button
+                className={`text-xs px-4 py-1 rounded font-semibold ${
+                  buyLoading 
+                    ? 'bg-gray-500 text-gray-300 cursor-not-allowed' 
+                    : 'bg-green-600 hover:bg-green-700 text-white'
+                }`}
+                onClick={handleBuy}
+                disabled={buyLoading}
+                title="Place Buy Order"
+              >
+                {buyLoading ? 'Buying...' : 'Buy'}
+              </button>
+              <button
+                className={`text-xs px-4 py-1 rounded font-semibold ${
+                  sellLoading 
+                    ? 'bg-gray-500 text-gray-300 cursor-not-allowed' 
+                    : 'bg-red-600 hover:bg-red-700 text-white'
+                }`}
+                onClick={handleSell}
+                disabled={sellLoading}
+                title="Place Sell Order"
+              >
+                {sellLoading ? 'Selling...' : 'Sell'}
+              </button>
+            </div>
           </div>
           {/* Row 2: Indicator controls */}
           <div className="flex flex-wrap items-center gap-4">
